@@ -4,6 +4,14 @@
   "description": "Configure automated API migration for a GitHub repository.",
   "license": "Apache-2.0",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yospy/setorra-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Yospy/setorra-cli/issues"
+  },
+  "homepage": "https://github.com/Yospy/setorra-cli#readme",
   "bin": {
     "setorra": "dist/setorra.js"
   },
