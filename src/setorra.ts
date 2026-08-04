@@ -105,22 +105,34 @@ function parseArguments(argv: readonly string[]): Options {
 }
 
 /**
- * Captures stderr instead of letting it through. Some failures here are expected and
- * handled -- creating the branch when it already exists -- and git's `fatal:` on the way
- * to a successful run reads as a broken tool. Real failures still surface: the message is
- * attached to the thrown error.
+ * Captures git's output instead of letting it through, so routine noise on the way to a
+ * successful run does not read as a broken tool.
+ *
+ * Both streams are kept for the error message. git reports several ordinary refusals on
+ * stdout rather than stderr -- "nothing to commit" is the one that matters here -- so a
+ * stderr-only message renders those failures as a blank reason.
  */
-function git(root: string, args: readonly string[]): string {
+function run(binary: string, root: string, args: readonly string[]): string {
   try {
-    return execFileSync("git", args, {
+    return execFileSync(binary, args, {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr ?? "";
-    throw new Error(`git ${args[0]} failed: ${stderr.trim() || String(error)}`);
+    const failure = error as { stderr?: string; stdout?: string };
+    const detail = [failure.stderr, failure.stdout]
+      .map((stream) => stream?.trim() ?? "")
+      .filter((stream) => stream.length > 0)
+      .join("\n");
+    throw new Error(
+      `${binary} ${args[0]} failed: ${detail || String(error)}`,
+    );
   }
+}
+
+function git(root: string, args: readonly string[]): string {
+  return run("git", root, args);
 }
 
 function readManaged(root: string): Map<string, string> {
@@ -246,7 +258,7 @@ function openPullRequest(
   ].join("\n");
 
   try {
-    const url = execFileSync("gh", [
+    const url = run("gh", root, [
       "pr",
       "create",
       "--head",
@@ -255,20 +267,23 @@ function openPullRequest(
       `Configure automated API migration (${agent})`,
       "--body",
       body,
-    ], { cwd: root, encoding: "utf8" }).trim();
+    ]);
     console.log(`\npull request: ${url}`);
+    return;
   } catch {
-    const url = execFileSync("gh", [
-      "pr",
-      "view",
-      BRANCH,
-      "--json",
-      "url",
-      "--jq",
-      ".url",
-    ], { cwd: root, encoding: "utf8" }).trim();
-    console.log(`\npull request updated: ${url}`);
+    // Falls through: the usual reason `create` refuses is that a pull request for this
+    // branch already exists, which is a re-run rather than a failure.
   }
+  const url = run("gh", root, [
+    "pr",
+    "view",
+    BRANCH,
+    "--json",
+    "url",
+    "--jq",
+    ".url",
+  ]);
+  console.log(`\npull request updated: ${url}`);
 }
 
 function runStatus(options: Options): number {
@@ -393,11 +408,13 @@ function runReconcile(options: Options): number {
     return 1;
   }
 
-  try {
-    git(options.root, ["checkout", "-b", BRANCH]);
-  } catch {
-    git(options.root, ["checkout", BRANCH]);
-  }
+  // `-B` creates the branch or resets it onto the current commit. Checking it out when it
+  // already exists would apply a plan computed against *this* branch to a different one:
+  // if the old branch already carried the same workflow there would be nothing to commit,
+  // and the run would fail having reported "create". The branch is force-pushed and owned
+  // by this tool, so starting it from the current commit every time is what makes the
+  // plan and the commit describe the same thing.
+  git(options.root, ["checkout", "-B", BRANCH]);
   const touched = applyActions(options.root, plan.actions);
   openPullRequest(options.root, agent, credential, touched);
   return 0;
@@ -411,5 +428,14 @@ export function main(argv: readonly string[]): number {
     console.error(error instanceof UsageError ? error.message : String(error));
     return 1;
   }
-  return options.command === "status" ? runStatus(options) : runReconcile(options);
+  try {
+    return options.command === "status" ? runStatus(options) : runReconcile(options);
+  } catch (error) {
+    // A stack trace of this tool's own internals tells a customer nothing they can act
+    // on, and it arrives after the repository has already been changed. Every failure
+    // that reaches here is a subprocess refusing, and `run` has already put the reason
+    // into the message.
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
 }
