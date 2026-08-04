@@ -1,0 +1,33 @@
+{
+  "name": "setorra",
+  "version": "0.1.0",
+  "description": "Configure automated API migration for a GitHub repository.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bin": {
+    "setorra": "dist/setorra.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "pretest": "tsc --project tsconfig.json",
+    "test": "node --test .tsbuild/tests/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsup": "8.5.0",
+    "typescript": "7.0.2",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  }
+}

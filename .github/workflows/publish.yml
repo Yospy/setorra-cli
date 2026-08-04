@@ -1,0 +1,76 @@
+# Publishes the `setorra` CLI to npm.
+#
+# Tag-gated on purpose: merging to main must never publish. npm's unpublish window is
+# 72 hours, so a release is close to irreversible and stays a deliberate act.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Requires an automation-type NPM_TOKEN secret with publish rights on the package.
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Lets npm attach a provenance attestation, tying the published tarball to this
+      # workflow run and this commit. Requires the repository to be public.
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0"
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build the bundle
+        run: npm run build
+
+      - name: Verify the published entrypoint runs
+        # Guards the failure this workflow exists to prevent: a bundle that resolves and
+        # exits 0 without doing anything. Invoked through the bin shim, as `npx` does,
+        # never as a direct file path -- the direct path passes even when the shim is
+        # broken, which is how that bug survived local testing once already.
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --pack-destination "${RUNNER_TEMP}"
+          mkdir -p "${RUNNER_TEMP}/smoke"
+          cd "${RUNNER_TEMP}/smoke"
+          npm init -y > /dev/null
+          npm install "${RUNNER_TEMP}"/setorra-*.tgz
+          output="$(./node_modules/.bin/setorra 2>&1 || true)"
+          echo "$output"
+          if ! grep -q "usage: setorra" <<< "$output"; then
+            echo "::error::bin shim produced no usage output; entrypoint is not wired"
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
