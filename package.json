@@ -2,7 +2,7 @@
   "name": "setorra",
   "version": "0.1.0",
   "description": "Configure automated API migration for a GitHub repository.",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "setorra": "dist/setorra.js"

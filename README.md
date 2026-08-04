@@ -58,6 +58,10 @@ file, `--dry-run` to print the plan without writing.
 `init` checks both before it touches your repository, so a missing prerequisite fails
 before anything is committed or pushed.
 
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
+
 ## Development
 
 ```bash
