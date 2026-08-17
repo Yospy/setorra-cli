@@ -25,7 +25,7 @@ configuration file here to maintain or to drift out of date.
 
 ## After merging
 
-The workflow needs one repository secret, named in the pull request body:
+The workflow needs the selected agent credential:
 
 | Agent | Secret |
 | --- | --- |
@@ -33,6 +33,14 @@ The workflow needs one repository secret, named in the pull request body:
 | `codex` | `OPENAI_API_KEY` |
 
 Add it under **Settings → Secrets and variables → Actions**.
+
+For V1 repository mutations, GitHub Actions uses its job-scoped built-in
+`${{ github.token }}`. Under **Settings → Actions → General**, set **Workflow
+permissions** to **Read and write permissions** and enable **Allow GitHub Actions to
+create and approve pull requests**. No custom PAT or GitHub App token is required.
+
+GitHub may require approval for CI triggered by the automation-created PR. A custom
+token for unattended CI is intentionally deferred to a later hardening release.
 
 Merging the pull request authorizes the platform to run an agent here. Deleting the
 workflow, or removing the secret, revokes that: with no workflow, an issue has nothing to

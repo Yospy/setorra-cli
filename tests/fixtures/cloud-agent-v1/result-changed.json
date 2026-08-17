@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "cloud-agent-result/v1",
+  "handoffId": "11111111-1111-4111-8111-111111111111",
+  "outcome": "changed",
+  "summary": "Updated the supported API call and opened a draft pull request.",
+  "repository": { "provider": "github", "repositoryId": "123456789" },
+  "baseSha": "cccccccccccccccccccccccccccccccccccccccc",
+  "headSha": "dddddddddddddddddddddddddddddddddddddddd",
+  "changedFiles": [{ "path": "src/client.ts", "status": "modified" }],
+  "checks": [],
+  "risks": [],
+  "blockers": [],
+  "pullRequest": { "number": 42, "url": "https://github.com/example/repository/pull/42" },
+  "mergePerformed": false
+}

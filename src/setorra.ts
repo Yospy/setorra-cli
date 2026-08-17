@@ -17,33 +17,17 @@ import {
   AGENT_ACTION_REPOSITORIES,
   AGENT_CREDENTIALS,
   type CredentialKind,
-  type PinnedAction,
 } from "./workflow/templates.js";
+import {
+  AGENT_ACTIONS,
+  CHECKOUT_ACTION,
+  UPLOAD_ARTIFACT_ACTION,
+} from "./workflow/action-pins.js";
 import { validateAgentWorkflow } from "./workflow/workflow-validate.js";
 
 const BRANCH = "setorra/onboarding";
 const BOT_LOGIN = process.env["SETORRA_BOT_LOGIN"] ?? "setorra[bot]";
 const LABEL = process.env["SETORRA_LABEL"] ?? "api-migration";
-
-// Deployment data, not domain logic. Bumping these is a reviewable commit, which is the
-// point: it decides which third-party code every customer runs.
-const CHECKOUT_ACTION: PinnedAction = {
-  repository: "actions/checkout",
-  sha: "3d3c42e5aac5ba805825da76410c181273ba90b1",
-  version: "v7",
-};
-const AGENT_ACTIONS: Readonly<Record<AgentKind, PinnedAction>> = {
-  claude: {
-    repository: AGENT_ACTION_REPOSITORIES.claude,
-    sha: "be7b93b1907a4abad570368f3c74b6fe3807510b",
-    version: "v1",
-  },
-  codex: {
-    repository: AGENT_ACTION_REPOSITORIES.codex,
-    sha: "52fe01ec70a42f454c9d2ebd47598f9fd6893d56",
-    version: "v1",
-  },
-};
 
 type Options = {
   command: "init" | "status" | "sync";
@@ -254,6 +238,14 @@ function openPullRequest(
     "provides it, nothing further is needed. Otherwise add it under",
     "Settings -> Secrets and variables -> Actions.",
     "",
+    "This V1 workflow uses the built-in `${{ github.token }}` for its deterministic",
+    "branch and draft-PR steps. In Settings -> Actions -> General, set Workflow",
+    "permissions to **Read and write permissions** and enable **Allow GitHub Actions",
+    "to create and approve pull requests**. No custom PAT or GitHub App token is needed.",
+    "",
+    "GitHub may require approval for CI triggered by the automation-created PR;",
+    "unattended CI authorization is deliberately deferred.",
+    "",
     "Merging authorizes the platform. Deleting this workflow revokes it.",
   ].join("\n");
 
@@ -378,6 +370,7 @@ function runReconcile(options: Options): number {
     label: LABEL,
     checkoutAction: CHECKOUT_ACTION,
     agentAction: AGENT_ACTIONS[agent],
+    uploadArtifactAction: UPLOAD_ARTIFACT_ACTION,
     existing,
     force: options.force,
   });

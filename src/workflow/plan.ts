@@ -21,6 +21,7 @@ export type ReconcileInput = {
   label: string;
   checkoutAction: PinnedAction;
   agentAction: PinnedAction;
+  uploadArtifactAction: PinnedAction;
   /** Current contents of every managed path that exists, keyed by repository path. */
   existing: ReadonlyMap<string, string>;
   force: boolean;
@@ -84,6 +85,7 @@ export function planRepositoryAgentFiles(input: ReconcileInput): ReconcilePlan {
         label: input.label,
         checkoutAction: input.checkoutAction,
         agentAction: input.agentAction,
+        uploadArtifactAction: input.uploadArtifactAction,
       })),
       input.existing,
       input.force,
