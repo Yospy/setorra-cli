@@ -13,6 +13,12 @@ const CHECKOUT: PinnedAction = {
   version: "v4.2.2",
 };
 
+const UPLOAD_ARTIFACT: PinnedAction = {
+  repository: "actions/upload-artifact",
+  sha: "d".repeat(40),
+  version: "v4",
+};
+
 function workflowInput(
   overrides: Partial<WorkflowTemplateInput> = {},
 ): WorkflowTemplateInput {
@@ -21,6 +27,7 @@ function workflowInput(
     botLogin: "setorra[bot]",
     label: "api-migration",
     checkoutAction: CHECKOUT,
+    uploadArtifactAction: UPLOAD_ARTIFACT,
     agentAction: {
       repository: "anthropics/claude-code-action",
       sha: "b".repeat(40),
@@ -47,12 +54,10 @@ function expectTemplateError(input: WorkflowTemplateInput): void {
   );
 }
 
-test("states in the file that deleting it revokes authorization", () => {
-  // The workflow is the authorization: no workflow, nothing for an issue to trigger.
-  // An earlier design made this claim in a separate config file that nothing read.
+test("states that deterministic workflow steps own repository mutations", () => {
   const rendered = renderAgentWorkflow(workflowInput());
-  assert.match(rendered, /Merging this file authorizes/u);
-  assert.match(rendered, /Deleting it, or removing the secret below, revokes/u);
+  assert.match(rendered, /agent can edit only/u);
+  assert.match(rendered, /deterministic workflow steps own GitHub mutations/u);
 });
 
 test("renders a Claude workflow with the pinned action and bot allowlist", () => {
@@ -73,7 +78,12 @@ test("renders a Claude workflow with the pinned action and bot allowlist", () =>
       "contains(github.event.issue.labels.*.name, 'api-migration')",
     ),
   );
-  assert.ok(rendered.includes("types: [opened, labeled]"));
+  assert.ok(rendered.includes("    types: [opened]"));
+  assert.ok(rendered.includes("run-name: api-migration-${{ github.event.issue.number }}"));
+  assert.ok(rendered.includes("id: provenance"));
+  assert.ok(rendered.includes("ref: ${{ steps.provenance.outputs.base_sha }}"));
+  assert.ok(rendered.includes("git rev-parse HEAD"));
+  assert.ok(rendered.includes("cloud-agent-result.json"));
 });
 
 test("renders a Codex workflow using the list-valued bot allowlist input", () => {
@@ -91,8 +101,8 @@ test("passes the issue body to Codex through a file, never inline", () => {
   const rendered = renderAgentWorkflow(
     workflowInput({ agent: "codex", agentAction: CODEX_ACTION }),
   );
-  assert.ok(rendered.includes("MIGRATION_TASK: ${{ github.event.issue.body }}"));
-  assert.ok(rendered.includes("prompt-file: ${{ runner.temp }}/migration-task.md"));
+  assert.ok(rendered.includes("ISSUE_BODY: ${{ github.event.issue.body }}"));
+  assert.ok(rendered.includes("prompt-file: ${{ runner.temp }}/agent-prompt.md"));
   assert.ok(!rendered.includes("prompt: ${{ github.event.issue.body }}"));
 });
 
@@ -178,16 +188,14 @@ test("rejects a credential the agent does not support", () => {
   );
 });
 
-test("puts the Claude action into agent mode so it opens the pull request", () => {
+test("puts the Claude action into edit-only agent mode", () => {
   const rendered = renderAgentWorkflow(workflowInput());
   assert.ok(rendered.includes("          prompt: |"));
-  assert.ok(rendered.includes("open a pull"));
-  assert.ok(rendered.includes("Closes #${{ github.event.issue.number }}"));
-  // Tag mode only returns a "Create PR" link, so the trigger must not select it.
-  assert.ok(!rendered.includes("label_trigger:"));
+  assert.ok(rendered.includes("Modify the working tree only"));
+  assert.ok(!rendered.includes("Then commit to a new branch"));
 });
 
-test("grants the agent tools it needs to edit, test and open a pull request", () => {
+test("grants the agent tools it needs to edit and test, but not mutate GitHub", () => {
   const rendered = renderAgentWorkflow(workflowInput());
   assert.ok(rendered.includes("--allowedTools"));
   // The allowlist is exclusive: omitting the file tools leaves the agent unable to
@@ -195,21 +203,27 @@ test("grants the agent tools it needs to edit, test and open a pull request", ()
   for (const tool of ["Read", "Edit", "Write", "Glob", "Grep"]) {
     assert.ok(rendered.includes(tool), `missing ${tool}`);
   }
-  assert.ok(rendered.includes("Bash(gh:*)"));
+  assert.ok(!rendered.includes("Bash(gh:*)"));
+  assert.ok(!rendered.includes("Bash(git:*)"));
   assert.ok(rendered.includes("Bash(python3:*)"));
 });
 
-test("never splices the untrusted issue body into the Claude workflow", () => {
+test("passes the untrusted issue body only through the provenance environment", () => {
   const rendered = renderAgentWorkflow(workflowInput());
-  assert.ok(!rendered.includes("github.event.issue.body"));
-  assert.ok(rendered.includes("github.event.issue.number"));
+  assert.ok(rendered.includes("ISSUE_BODY: ${{ github.event.issue.body }}"));
+  assert.ok(!rendered.includes("prompt: ${{ github.event.issue.body }}"));
 });
 
-test("serializes runs so two events cannot race on one branch", () => {
+test("serializes one-shot runs and gives shell steps exclusive mutation authority", () => {
   const rendered = renderAgentWorkflow(workflowInput());
   assert.ok(rendered.includes("    concurrency:"));
   assert.ok(
     rendered.includes("      group: api-migration-${{ github.event.issue.number }}"),
   );
   assert.ok(rendered.includes("      cancel-in-progress: true"));
+  assert.ok(rendered.includes("--force-with-lease"));
+  assert.ok(rendered.includes("gh pr list"));
+  assert.ok(rendered.includes("if: always()"));
+  assert.ok(rendered.includes("persist-credentials: false"));
+  assert.ok(rendered.includes("GIT_AUTH_KEY"));
 });

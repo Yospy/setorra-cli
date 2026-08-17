@@ -20,6 +20,12 @@ const CHECKOUT: PinnedAction = {
   version: "v4",
 };
 
+const UPLOAD_ARTIFACT: PinnedAction = {
+  repository: "actions/upload-artifact",
+  sha: "d".repeat(40),
+  version: "v4",
+};
+
 function agentAction(agent: "claude" | "codex"): PinnedAction {
   return agent === "claude"
     ? {
@@ -39,6 +45,7 @@ function input(overrides: Partial<ReconcileInput> = {}): ReconcileInput {
     label: "api-migration",
     checkoutAction: CHECKOUT,
     agentAction: agentAction(agent),
+    uploadArtifactAction: UPLOAD_ARTIFACT,
     existing: new Map(),
     force: false,
     ...overrides,

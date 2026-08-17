@@ -1,5 +1,10 @@
 export type AgentKind = "claude" | "codex";
 
+export const WORKFLOW_CONTRACT_VERSION = "agent-workflow/1";
+export const RESULT_CONTRACT_VERSION = "cloud-agent-result/v1";
+export const RESULT_ARTIFACT_NAME = "cloud-agent-result";
+export const RESULT_ARTIFACT_FILE = "cloud-agent-result.json";
+
 /**
  * The only file this platform puts in a customer repository.
  *

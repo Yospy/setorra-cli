@@ -29,6 +29,7 @@
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "pretest": "tsc --project tsconfig.json",
     "test": "node --test .tsbuild/tests/*.test.js",
+    "fixtures:cloud-agent-v1": "tsc --project tsconfig.json && node scripts/generate-cloud-agent-fixtures.mjs",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
