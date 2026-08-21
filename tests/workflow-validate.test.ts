@@ -100,6 +100,22 @@ test("requires isolated post-agent Git state", () => {
   assert.ok(codes(value).includes("missing_isolated_git_state"));
 });
 
+test("requires base ancestry and untracked-file assessment", () => {
+  const withoutParent = document();
+  const safeGit = step(withoutParent, "safe_git");
+  safeGit["run"] = String(safeGit["run"])
+    .replace('"${SAFE_GIT[@]}" update-ref refs/heads/setorra-handoff "$BASE_SHA"\n', "")
+    .replace('"${SAFE_GIT[@]}" symbolic-ref HEAD refs/heads/setorra-handoff\n', "");
+  assert.ok(codes(withoutParent).includes("missing_isolated_git_state"));
+
+  const withoutUntracked = document();
+  const prepare = step(withoutUntracked, "prepare");
+  prepare["run"] = String(prepare["run"])
+    .replace('"${SAFE_GIT[@]}" add --all -- .\n', "")
+    .replaceAll("diff --cached", "diff");
+  assert.ok(codes(withoutUntracked).includes("missing_isolated_git_state"));
+});
+
 test("isolates agents from later workflow environments", () => {
   const value = document();
   delete (step(value, "agent")["env"] as Record<string, unknown>)["GITHUB_ENV"];
