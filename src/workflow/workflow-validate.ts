@@ -265,6 +265,7 @@ function checkContractControls(
   const safeGit = oneStep(steps, "safe_git");
   const safeGitRun = stepRun(safeGit);
   const prepare = oneStep(steps, "prepare");
+  const prepareRun = stepRun(prepare);
   if (
     agent === undefined ||
     safeGit === undefined ||
@@ -273,12 +274,17 @@ function checkContractControls(
     !safeGitRun.includes("git init --bare") ||
     !safeGitRun.includes("fetch --no-tags --depth=1 origin") ||
     !safeGitRun.includes("core.hooksPath=/dev/null") ||
-    !stepRun(prepare).includes("--git-dir=\"$SAFE_GIT_DIR\"")
+    !safeGitRun.includes('update-ref refs/heads/setorra-handoff "$BASE_SHA"') ||
+    !safeGitRun.includes("symbolic-ref HEAD refs/heads/setorra-handoff") ||
+    !prepareRun.includes("--git-dir=\"$SAFE_GIT_DIR\"") ||
+    !prepareRun.includes('"${SAFE_GIT[@]}" add --all -- .') ||
+    !prepareRun.includes("diff --cached --no-ext-diff --quiet") ||
+    !prepareRun.includes("diff --cached --no-ext-diff --name-only")
   ) {
     push(
       findings,
       "missing_isolated_git_state",
-      "Post-agent Git operations must use a fresh hook-free Git directory.",
+      "Post-agent Git must use a base-anchored, hook-free directory and stage all files before policy checks.",
     );
   }
 
