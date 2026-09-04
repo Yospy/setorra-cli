@@ -93,6 +93,17 @@ test("requires the deterministic handoff branch", () => {
   assert.ok(codes(value).includes("non_deterministic_branch"));
 });
 
+test("requires reference-aware source preparation before the agent", () => {
+  const missing = document();
+  const missingSteps = migration(missing)["steps"] as Record<string, unknown>[];
+  missingSteps.splice(missingSteps.findIndex((candidate) => candidate["id"] === "sources"), 1);
+  assert.ok(codes(missing).includes("missing_v4_reference_source_support"));
+
+  const unsafe = document();
+  step(unsafe, "sources")["run"] = "for (const source of sources) await fetch(source.url);";
+  assert.ok(codes(unsafe).includes("missing_v4_reference_source_support"));
+});
+
 test("requires isolated post-agent Git state", () => {
   const value = document();
   const safeGit = step(value, "safe_git");

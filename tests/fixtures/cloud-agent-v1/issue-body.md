@@ -42,7 +42,7 @@ Everything below is generated from registry artifacts, third-party sources, and 
 ### Provenance
 
 ```json
-{"schemaVersion":"release-agent-handoff/v3","handoffId":"11111111-1111-4111-8111-111111111111","handoffDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","contextDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","workflowContractVersion":"agent-workflow/1","resultContractVersion":"cloud-agent-result/v1","repositoryId":"123456789","baseSha":"cccccccccccccccccccccccccccccccccccccccc","workflowId":"987654321","workflowPath":".github/workflows/api-migration-claude.yml","contextPayloadDigest":"036df552e1e66fa52f9ac03ccefc469a21a3fa01baa5032bb6a838d9b6081988"}
+{"schemaVersion":"release-agent-handoff/v3","runId":"99999999-9999-4999-8999-999999999999","handoffId":"11111111-1111-4111-8111-111111111111","handoffDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","contextDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","workflowContractVersion":"agent-workflow/1","resultContractVersion":"cloud-agent-result/v1","repositoryId":"123456789","baseSha":"cccccccccccccccccccccccccccccccccccccccc","workflowId":"987654321","workflowPath":".github/workflows/api-migration-claude.yml","contextPayloadDigest":"036df552e1e66fa52f9ac03ccefc469a21a3fa01baa5032bb6a838d9b6081988"}
 ```
 
-<!-- setorra-run:11111111-1111-4111-8111-111111111111;handoff:11111111-1111-4111-8111-111111111111;digest:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->
+<!-- setorra-run:99999999-9999-4999-8999-999999999999;handoff:11111111-1111-4111-8111-111111111111;digest:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->

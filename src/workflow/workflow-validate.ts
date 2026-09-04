@@ -24,6 +24,7 @@ export type WorkflowFindingCode =
   | "missing_exact_sha_checkout"
   | "missing_checkout_head_proof"
   | "missing_or_duplicate_provenance_validation"
+  | "missing_v4_reference_source_support"
   | "non_deterministic_branch"
   | "missing_first_cancellation_fence"
   | "missing_second_cancellation_fence"
@@ -261,7 +262,24 @@ function checkContractControls(
     push(findings, "non_deterministic_branch", "The handoff branch must be exactly `setorra/<handoffId>`.");
   }
 
+  const sources = oneStep(steps, "sources");
+  const sourcesRun = stepRun(sources);
   const agent = oneStep(steps, "agent");
+  if (
+    sources === undefined ||
+    stepIndex(steps, sources) <= stepIndex(steps, proof) ||
+    stepIndex(steps, sources) >= stepIndex(steps, agent) ||
+    !sourcesRun.includes("release-agent-context/v4") ||
+    !sourcesRun.includes("source.access === 'reference_only'") ||
+    !sourcesRun.includes("file: null")
+  ) {
+    push(
+      findings,
+      "missing_v4_reference_source_support",
+      "Source preparation must preserve V4 references without downloading them before the agent runs.",
+    );
+  }
+
   const safeGit = oneStep(steps, "safe_git");
   const safeGitRun = stepRun(safeGit);
   const prepare = oneStep(steps, "prepare");

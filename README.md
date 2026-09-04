@@ -23,6 +23,12 @@ Nothing else is added to your repository. Which packages to migrate, which paths
 agent may modify, and the analysis it works from are sent with each issue, so there is no
 configuration file here to maintain or to drift out of date.
 
+For releases whose distributable files are too large for bounded analysis, the workflow
+passes a digest-bound PyPI catalog URL and artifact count to the agent instead of
+embedding or downloading every binary. Those entries are marked `reference_only` and
+uninspected; any artifact the agent chooses to inspect must be downloaded selectively,
+checked against PyPI's SHA-256 metadata, and never executed.
+
 ## After merging
 
 The workflow needs the selected agent credential:
@@ -53,6 +59,9 @@ trigger.
 | `setorra init <claude\|codex>` | Install the workflow and open a pull request. |
 | `setorra status` | Check the installed workflow: right agent, gate intact, no duplicates. |
 | `setorra sync` | Regenerate the installed workflow, e.g. after a pinned action moves. |
+
+Existing installations must merge a `setorra sync` update before they can accept
+reference-only release handoffs.
 
 Flags: `--credential api_key\|oauth_token`, `--force` to overwrite a hand-edited managed
 file, `--dry-run` to print the plan without writing.
