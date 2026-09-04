@@ -52,17 +52,6 @@ function step(
   return found;
 }
 
-function namedStep(
-  document: Record<string, unknown>,
-  name: string,
-): Record<string, unknown> {
-  const jobs = document["jobs"] as Record<string, Record<string, unknown>>;
-  const steps = jobs["migrate"]?.["steps"] as Record<string, unknown>[];
-  const found = steps.find((candidate) => candidate["name"] === name);
-  assert.ok(found !== undefined, `step '${name}' is missing`);
-  return found;
-}
-
 function runSourceVerification(options: {
   expectedDigest: string;
   mode: "good" | "mismatch" | "oversized" | "invalid_length";
@@ -116,7 +105,7 @@ global.fetch = async (input) => {
     "bash",
     [
       "-c",
-      String(namedStep(workflow(), "Fetch and verify release sources")["run"]),
+      String(step(workflow(), "sources")["run"]),
     ],
     {
       encoding: "utf8",
@@ -142,6 +131,130 @@ global.fetch = async (input) => {
   }
   return result;
 }
+
+test("V4 catalog pointers are written intact without artifact HTTP requests", () => {
+  const root = mkdtempSync(join(tmpdir(), "setorra-reference-"));
+  const contextFile = join(root, "context.json");
+  const sourceDirectory = join(root, "sources");
+  const preload = join(root, "fetch-mock.cjs");
+  const catalog = (role: "base_artifact" | "target_artifact", version: string) => ({
+    id: `${role}-release-catalog`,
+    kind: "package_release_catalog",
+    role,
+    access: "reference_only",
+    contentInspected: false,
+    source: `pkg:pypi/torch@${version}`,
+    registryUrl: `https://pypi.org/pypi/torch/${version}/json`,
+    snapshotSha256: "a".repeat(64),
+    artifactCount: 24,
+  });
+  writeFileSync(contextFile, JSON.stringify({
+    schemaVersion: "release-agent-context/v4",
+    sources: [catalog("base_artifact", "2.13.0"), catalog("target_artifact", "2.14.0")],
+  }));
+  writeFileSync(preload, "global.fetch = async () => { throw new Error('reference source fetched'); };\n");
+
+  const result = spawnSync("bash", ["-c", String(step(workflow(), "sources")["run"])], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      RELEASE_CONTEXT_FILE: contextFile,
+      RELEASE_SOURCE_DIR: sourceDirectory,
+      SOURCE_TOKEN: "test-token",
+    },
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const manifest = JSON.parse(readFileSync(join(sourceDirectory, "manifest.json"), "utf8")) as Array<{
+    access: string;
+    file: string | null;
+    artifactCount: number;
+  }>;
+  assert.equal(manifest.length, 2);
+  assert.equal(manifest.reduce((count, source) => count + source.artifactCount, 0), 48);
+  assert.ok(manifest.every((source) => source.access === "reference_only" && source.file === null));
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("mixed V4 sources materialize only verified content", () => {
+  const root = mkdtempSync(join(tmpdir(), "setorra-mixed-source-"));
+  const contextFile = join(root, "context.json");
+  const sourceDirectory = join(root, "sources");
+  const preload = join(root, "fetch-mock.cjs");
+  const callsFile = join(root, "fetch-calls.txt");
+  const bytes = "verified source bytes";
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  writeFileSync(contextFile, JSON.stringify({
+    schemaVersion: "release-agent-context/v4",
+    sources: [{
+      id: "base",
+      kind: "package_artifact",
+      role: "base_artifact",
+      access: "verified_content",
+      contentInspected: true,
+      source: "pkg:pypi/example@1.0.0",
+      url: "https://sources.example.test/base.whl",
+      sha256: digest,
+    }, {
+      id: "target-catalog",
+      kind: "package_release_catalog",
+      role: "target_artifact",
+      access: "reference_only",
+      contentInspected: false,
+      source: "pkg:pypi/example@2.0.0",
+      registryUrl: "https://pypi.org/pypi/example/2.0.0/json",
+      snapshotSha256: "a".repeat(64),
+      artifactCount: 1,
+    }],
+  }));
+  writeFileSync(
+    preload,
+    `
+const fs = require('node:fs');
+global.fetch = async (input) => {
+  const url = String(input);
+  if (url.includes('files.pythonhosted.org')) throw new Error('reference source fetched');
+  fs.appendFileSync(process.env.FETCH_CALLS_FILE, url + '\\n');
+  const body = Buffer.from('verified source bytes');
+  return {
+    ok: true,
+    url,
+    headers: new Headers({ 'content-length': String(body.length) }),
+    body: new ReadableStream({ start(controller) {
+      controller.enqueue(body);
+      controller.close();
+    } }),
+  };
+};
+`,
+  );
+
+  const result = spawnSync("bash", ["-c", String(step(workflow(), "sources")["run"])], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `--require=${preload}`,
+      FETCH_CALLS_FILE: callsFile,
+      RELEASE_CONTEXT_FILE: contextFile,
+      RELEASE_SOURCE_DIR: sourceDirectory,
+      SOURCE_TOKEN: "test-token",
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(callsFile, "utf8"), "https://sources.example.test/base.whl\n");
+  const manifest = JSON.parse(readFileSync(join(sourceDirectory, "manifest.json"), "utf8")) as Array<{
+    access: string;
+    file: string | null;
+  }>;
+  assert.equal(manifest[0]?.access, "verified_content");
+  assert.equal(typeof manifest[0]?.file, "string");
+  assert.deepEqual(manifest[1], {
+    ...JSON.parse(readFileSync(contextFile, "utf8")).sources[1],
+    file: null,
+  });
+  rmSync(root, { recursive: true, force: true });
+});
 
 function outputValue(file: string, key: string): string {
   const line = readFileSync(file, "utf8").split("\n")

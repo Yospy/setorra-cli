@@ -9,6 +9,7 @@ import {
 
 const FIXTURE = readFileSync(new URL("../../tests/fixtures/cloud-agent-v1/issue-body.md", import.meta.url), "utf8");
 const HANDOFF_ID = "11111111-1111-4111-8111-111111111111";
+const RUN_ID = "99999999-9999-4999-8999-999999999999";
 const HANDOFF_DIGEST = "a".repeat(64);
 const WORKFLOW_PATH = ".github/workflows/api-migration-claude.yml";
 
@@ -36,7 +37,7 @@ function issueBody(
     JSON.stringify(provenance),
     "```",
     "",
-    `<!-- setorra-run:${HANDOFF_ID};handoff:${HANDOFF_ID};digest:${HANDOFF_DIGEST} -->`,
+    `<!-- setorra-run:${String(provenance["runId"] ?? HANDOFF_ID)};handoff:${HANDOFF_ID};digest:${HANDOFF_DIGEST} -->`,
   ].join("\n");
 }
 
@@ -110,7 +111,11 @@ test("requires contextPayloadDigest for V3 provenance", () => {
   assert.throws(
     () =>
       parseIssueProvenance(
-        issueBody({ ...v2Provenance(), schemaVersion: "release-agent-handoff/v3" }),
+        issueBody({
+          ...v2Provenance(),
+          schemaVersion: "release-agent-handoff/v3",
+          runId: RUN_ID,
+        }),
         "123456789",
         WORKFLOW_PATH,
       ),
@@ -145,6 +150,7 @@ test("rejects V3 sources without valid SHA-256 hashes", () => {
   const provenance = {
     ...v2Provenance(),
     schemaVersion: "release-agent-handoff/v3",
+    runId: RUN_ID,
     contextPayloadDigest: payloadDigest,
   };
   assert.throws(
@@ -154,6 +160,45 @@ test("rejects V3 sources without valid SHA-256 hashes", () => {
         "123456789",
         WORKFLOW_PATH,
       ),
+    ProvenanceContractError,
+  );
+});
+
+test("accepts strict V4 catalog pointers and rejects registry tampering", () => {
+  const source = (role: "base_artifact" | "target_artifact", version: string) => {
+    const registryUrl = `https://pypi.org/pypi/torch/${version}/json`;
+    return {
+      id: `${role}-release-catalog`,
+      kind: "package_release_catalog",
+      role,
+      access: "reference_only",
+      contentInspected: false,
+      source: `pkg:pypi/torch@${version}`,
+      registryUrl,
+      snapshotSha256: "1".repeat(64),
+      artifactCount: 24,
+    };
+  };
+  const unsignedContext = {
+    schemaVersion: "release-agent-context/v4",
+    handoffId: HANDOFF_ID,
+    sources: [source("base_artifact", "2.13.0"), source("target_artifact", "2.14.0")],
+  };
+  const payloadDigest = createHash("sha256").update(canonical(unsignedContext)).digest("hex");
+  const provenance = {
+    ...v2Provenance(),
+    schemaVersion: "release-agent-handoff/v4",
+    runId: RUN_ID,
+    contextPayloadDigest: payloadDigest,
+  };
+  const body = issueBody(provenance, { ...unsignedContext, payloadDigest });
+
+  assert.equal(
+    parseIssueProvenance(body, "123456789", WORKFLOW_PATH).schemaVersion,
+    "release-agent-handoff/v4",
+  );
+  assert.throws(
+    () => parseIssueProvenance(body.replace("pypi.org", "evil.example"), "123456789", WORKFLOW_PATH),
     ProvenanceContractError,
   );
 });

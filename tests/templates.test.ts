@@ -84,6 +84,10 @@ test("renders a Claude workflow with the pinned action and bot allowlist", () =>
   assert.ok(rendered.includes("ref: ${{ steps.provenance.outputs.base_sha }}"));
   assert.ok(rendered.includes("git rev-parse HEAD"));
   assert.ok(rendered.includes("cloud-agent-result.json"));
+  assert.ok(rendered.includes("id: sources"));
+  assert.ok(rendered.includes("source.access === 'reference_only'"));
+  assert.ok(rendered.includes("file: null"));
+  assert.ok(rendered.includes("contents were not inspected"));
 });
 
 test("renders a Codex workflow using the list-valued bot allowlist input", () => {
