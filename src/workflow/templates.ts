@@ -1,3 +1,5 @@
+import { renderCompletionScript } from "./completion-script.js";
+import { COMPLETION_INPUTS, COMPLETION_MARKER } from "./contracts.js";
 import { z } from "zod";
 import {
   AGENT_WORKFLOW_PATHS,
@@ -607,6 +609,79 @@ export function renderAgentWorkflow(input: WorkflowTemplateInput): string {
     ...renderPushStep(),
     ...renderPullRequestStep(),
     ...renderResultSteps(value.uploadArtifactAction),
+    "",
+  ].join("\n");
+}
+
+export type CompletionWorkflowInput = {
+  botLogin: string;
+  label: string;
+  uploadArtifactAction: PinnedAction;
+};
+
+export function renderCompletionWorkflow(input: CompletionWorkflowInput): string {
+  WorkflowTemplateInputSchema.shape.botLogin.parse(input.botLogin);
+  WorkflowTemplateInputSchema.shape.label.parse(input.label);
+  const upload = PinnedActionSchema.parse(input.uploadArtifactAction);
+  if (upload.repository !== UPLOAD_ARTIFACT_ACTION_REPOSITORY) {
+    throw new Error("completion requires actions/upload-artifact");
+  }
+  const script = [
+    "try {",
+    renderCompletionScript(),
+    "} catch (error) {",
+    "  const fs = require('node:fs');",
+    "  const reason = /^(action_required:|invalid_provenance:)/.test(error.message) ? error.message : 'action_required:original_evidence_or_provider_unavailable';",
+    "  process.stderr.write(reason + '\\n');",
+    "  fs.writeFileSync(process.env.RESULT_FILE, JSON.stringify({ schemaVersion: 'cloud-agent-result/v1', handoffId: '00000000-0000-4000-8000-000000000000', outcome: 'failed', summary: reason.slice(0, 2000), repository: { provider: 'github', repositoryId: process.env.GITHUB_REPOSITORY_ID || '0' }, baseSha: '0'.repeat(40), headSha: '0'.repeat(40), changedFiles: [], checks: [], risks: [], blockers: [reason.slice(0, 1000)], pullRequest: null, mergePerformed: false }) + '\\n', { mode: 0o600 });",
+    "  process.exitCode = 1;",
+    "}",
+  ].join("\n");
+  return [
+    COMPLETION_MARKER,
+    "name: Setorra PR completion",
+    "run-name: setorra-recovery-${{ inputs.recovery_id }}",
+    "on:",
+    "  workflow_dispatch:",
+    "    inputs:",
+    ...COMPLETION_INPUTS.flatMap(name => [
+      `      ${name}:`, "        required: true", "        type: string",
+    ]),
+    "permissions:",
+    "  contents: read",
+    "  issues: read",
+    "  actions: read",
+    "  pull-requests: write",
+    "concurrency:",
+    "  group: setorra-${{ inputs.handoff_id }}",
+    "  cancel-in-progress: false",
+    "jobs:",
+    "  complete:",
+    "    if: ${{ github.sha == inputs.expected_execution_sha }}",
+    "    runs-on: ubuntu-latest",
+    "    timeout-minutes: 10",
+    "    steps:",
+    "      - name: Create or adopt the existing migration PR",
+    "        id: completion",
+    "        env:",
+    "          GH_TOKEN: ${{ github.token }}",
+    "          RECOVERY_INPUTS: ${{ toJSON(inputs) }}",
+    `          EXPECTED_BOT_LOGIN: ${JSON.stringify(input.botLogin)}`,
+    `          EXPECTED_LABEL: ${JSON.stringify(input.label)}`,
+    "          RESULT_FILE: ${{ runner.temp }}/cloud-agent-result.json",
+    "        shell: bash",
+    "        run: |",
+    "          node <<'SETORRA_COMPLETION'",
+    ...script.split("\n").map(line => `          ${line}`),
+    "          SETORRA_COMPLETION",
+    "      - name: Upload completion result",
+    "        if: always()",
+    `        uses: ${upload.repository}@${upload.sha} # ${upload.version}`,
+    "        with:",
+    "          name: cloud-agent-result",
+    "          path: ${{ runner.temp }}/cloud-agent-result.json",
+    "          if-no-files-found: error",
+    "          retention-days: 7",
     "",
   ].join("\n");
 }

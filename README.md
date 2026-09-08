@@ -1,6 +1,6 @@
 # setorra
 
-Onboards a GitHub repository for automated API migration. It installs one workflow file
+Onboards a GitHub repository for automated API migration. It installs two workflow files
 and opens a pull request for you to review.
 
 ```bash
@@ -9,15 +9,30 @@ npx setorra init claude    # or: codex
 
 ## What it writes
 
-Exactly one file:
+One agent workflow (Claude shown; Codex uses `api-migration-codex.yml`) and a shared
+completion workflow:
 
 ```
 .github/workflows/api-migration-claude.yml
+.github/workflows/setorra-pr-completion.yml
 ```
 
-That workflow runs a coding agent, and it runs only for issues opened by the platform's
+The agent workflow runs a coding agent, and it runs only for issues opened by the platform's
 GitHub App carrying the `api-migration` label. Nothing else can trigger it. Third-party
 actions are pinned to full commit SHAs.
+
+The completion workflow is dispatched by the backend when an agent pushed a migration
+branch but failed to create its PR. It verifies the original workflow attempt, result
+artifact/digest, issue provenance and unchanged branch before creating one ready-for-review
+PR or adopting an existing correlated ready PR. It uses only `github.token`, never
+checks out customer code, reruns the agent, commits, pushes, rebases or merges.
+
+An existing draft PR, changed branch, ambiguous PR identity, or missing/expired original
+artifact requires human action. Artifacts expire after seven days; there is no approved
+fallback to the backend's retained result. Failure stops before PR mutation when evidence
+is unavailable. Failed companion executions become action-required and are **not
+automatically resubmitted** after a prerequisite is repaired. Do not manually rerun the
+companion: backend v1 accepts only its first attempt.
 
 Nothing else is added to your repository. Which packages to migrate, which paths the
 agent may modify, and the analysis it works from are sent with each issue, so there is no
@@ -48,20 +63,22 @@ create and approve pull requests**. No custom PAT or GitHub App token is require
 GitHub may require approval for CI triggered by the automation-created PR. A custom
 token for unattended CI is intentionally deferred to a later hardening release.
 
-Merging the pull request authorizes the platform to run an agent here. Deleting the
-workflow, or removing the secret, revokes that: with no workflow, an issue has nothing to
-trigger.
+Merging the pull request authorizes these workflows. Delete both workflow files to
+revoke execution. Removing the agent secret alone does not disable PR completion.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `setorra init <claude\|codex>` | Install the workflow and open a pull request. |
-| `setorra status` | Check the installed workflow: right agent, gate intact, no duplicates. |
-| `setorra sync` | Regenerate the installed workflow, e.g. after a pinned action moves. |
+| `setorra init <claude\|codex>` | Install both workflows and open a pull request. |
+| `setorra status` | Check the agent workflow and reviewed completion contract. |
+| `setorra sync` | Upgrade both workflows, including adding a missing companion. |
 
 Existing installations must merge a `setorra sync` update before they can accept
-reference-only release handoffs.
+reference-only release handoffs or PR-completion dispatches. The companion must be on
+the default branch. Backend rollout also requires its FIFO recovery migration and
+installation-owner approval of GitHub App Actions write; Administration write remains
+required for automatic PR-setting repair.
 
 Flags: `--credential api_key\|oauth_token`, `--force` to overwrite a hand-edited managed
 file, `--dry-run` to print the plan without writing.
