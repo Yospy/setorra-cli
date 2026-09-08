@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { validateCompletionWorkflow } from "./workflow/completion-validate.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
   AGENT_WORKFLOW_PATHS,
+  COMPLETION_WORKFLOW_PATH,
   type AgentKind,
 } from "./workflow/contracts.js";
 import {
@@ -214,8 +216,8 @@ function openPullRequest(
     "-m",
     `chore: configure automated API migration (${agent})`,
     "-m",
-    "Adds the workflow that runs the coding agent. Merging authorizes the platform to\n" +
-    "run it in this repository.",
+    "Adds the agent and completion workflows. Merging authorizes the platform to\n" +
+    "run them in this repository.",
     "--",
     ...touched,
   ]);
@@ -228,7 +230,10 @@ function openPullRequest(
     `  issues opened by \`${BOT_LOGIN}\` carrying the \`${LABEL}\` label. Nothing else`,
     "  can trigger it.",
     "",
-    "This is the only file the platform adds. Which packages to migrate, which paths",
+    `- \`${COMPLETION_WORKFLOW_PATH}\` — creates or adopts a ready-for-review PR`,
+    "  from an unchanged migration branch, without rerunning the agent or pushing code.",
+    "",
+    "Which packages to migrate, which paths",
     "the agent may modify, and the analysis it works from are all sent with each",
     "issue, so there is no configuration here to maintain or to drift.",
     "",
@@ -246,7 +251,7 @@ function openPullRequest(
     "GitHub may require approval for CI triggered by the automation-created PR;",
     "unattended CI authorization is deliberately deferred.",
     "",
-    "Merging authorizes the platform. Deleting this workflow revokes it.",
+    "Merging authorizes the platform. Delete both workflows to revoke execution.",
   ].join("\n");
 
   try {
@@ -324,6 +329,14 @@ function runStatus(options: Options): number {
     if (finding.severity === "error") {
       failures += 1;
     }
+  }
+
+  const completion = existing.get(COMPLETION_WORKFLOW_PATH);
+  if (completion === undefined || !validateCompletionWorkflow(completion, {
+    botLogin: BOT_LOGIN, label: LABEL, uploadArtifactAction: UPLOAD_ARTIFACT_ACTION,
+  })) {
+    console.error(`error: ${COMPLETION_WORKFLOW_PATH} is missing or differs from the reviewed completion contract; run setorra sync.`);
+    failures += 1;
   }
 
   if (failures === 0) {

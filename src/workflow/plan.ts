@@ -1,9 +1,10 @@
-import { AGENT_WORKFLOW_PATHS, type AgentKind } from "./contracts.js";
+import { AGENT_WORKFLOW_PATHS, COMPLETION_WORKFLOW_PATH, type AgentKind } from "./contracts.js";
 import { inspectProvenance, stampProvenance } from "./provenance.js";
 import {
   type CredentialKind,
   type PinnedAction,
   renderAgentWorkflow,
+  renderCompletionWorkflow,
 } from "./templates.js";
 
 export type PlannedAction =
@@ -36,7 +37,7 @@ export type ReconcilePlan = {
 };
 
 export function managedPaths(): readonly string[] {
-  return [AGENT_WORKFLOW_PATHS.claude, AGENT_WORKFLOW_PATHS.codex];
+  return [AGENT_WORKFLOW_PATHS.claude, AGENT_WORKFLOW_PATHS.codex, COMPLETION_WORKFLOW_PATH];
 }
 
 function planFile(
@@ -76,6 +77,7 @@ function planFile(
  */
 export function planRepositoryAgentFiles(input: ReconcileInput): ReconcilePlan {
   const actions: PlannedAction[] = [
+    planFile(COMPLETION_WORKFLOW_PATH, stampProvenance(renderCompletionWorkflow(input)), input.existing, input.force),
     planFile(
       AGENT_WORKFLOW_PATHS[input.agent],
       stampProvenance(renderAgentWorkflow({

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AGENT_WORKFLOW_PATHS } from "../src/workflow/contracts.js";
+import { AGENT_WORKFLOW_PATHS, COMPLETION_WORKFLOW_PATH, COMPLETION_MARKER } from "../src/workflow/contracts.js";
 import {
   managedPaths,
   type PlannedAction,
@@ -58,18 +58,20 @@ function byPath(actions: readonly PlannedAction[], path: string): PlannedAction 
   return found;
 }
 
-test("manages exactly the two workflow paths", () => {
+test("manages the agent choices and shared completion workflow", () => {
   assert.deepEqual(managedPaths(), [
     AGENT_WORKFLOW_PATHS.claude,
     AGENT_WORKFLOW_PATHS.codex,
+    COMPLETION_WORKFLOW_PATH,
   ]);
 });
 
-test("creates one file in an empty repository", () => {
+test("creates agent and completion workflows in an empty repository", () => {
   const plan = planRepositoryAgentFiles(input());
   assert.equal(plan.clean, false);
   assert.equal(plan.blocked, false);
-  assert.equal(plan.actions.length, 1);
+  assert.equal(plan.actions.length, 2);
+  assert.equal(byPath(plan.actions, COMPLETION_WORKFLOW_PATH).kind, "create");
   assert.equal(byPath(plan.actions, AGENT_WORKFLOW_PATHS.claude).kind, "create");
 });
 
@@ -159,4 +161,35 @@ test("stamping is deterministic and survives a round trip", () => {
   const body = "a: 1\nb: 2\n";
   assert.equal(stampProvenance(body), stampProvenance(body));
   assert.equal(stripProvenance(stampProvenance(body)), body);
+});
+
+
+test("upgrades an agent-only install and preserves the companion across agent switches", () => {
+  const first = planRepositoryAgentFiles(input());
+  const agent = byPath(first.actions, AGENT_WORKFLOW_PATHS.claude);
+  assert.ok(agent.kind === "create");
+  const existing = new Map([[agent.path, agent.contents]]);
+  const upgraded = planRepositoryAgentFiles(input({ existing }));
+  assert.equal(byPath(upgraded.actions, AGENT_WORKFLOW_PATHS.claude).kind, "unchanged");
+  const companion = byPath(upgraded.actions, COMPLETION_WORKFLOW_PATH);
+  assert.ok(companion.kind === "create");
+  assert.equal(companion.contents.split("\n")[0], COMPLETION_MARKER);
+  assert.match(companion.contents.split("\n")[1]!, /^# setorra-managed: sha256:/u);
+  existing.set(companion.path, companion.contents);
+  const switched = planRepositoryAgentFiles(input({ agent: "codex", existing }));
+  assert.equal(byPath(switched.actions, COMPLETION_WORKFLOW_PATH).kind, "unchanged");
+  assert.equal(planRepositoryAgentFiles(input({ existing })).clean, true);
+  existing.set(companion.path, companion.contents + "# edited\n");
+  assert.equal(planRepositoryAgentFiles(input({ existing })).blocked, true);
+  assert.equal(planRepositoryAgentFiles(input({ existing, force: true })).blocked, false);
+});
+
+test("completion management stamp authenticates the marker and entire workflow", () => {
+  const body = `${COMPLETION_MARKER}\nname: completion\n`;
+  const stamped = stampProvenance(body);
+  assert.equal(inspectProvenance(stamped), "managed");
+  assert.equal(stripProvenance(stamped), body);
+  assert.equal(inspectProvenance(stamped.replace("name: completion", "name: edited")), "modified");
+  assert.notEqual(inspectProvenance(stamped.replace("/v1", "/v2")), "managed");
+  assert.equal(inspectProvenance(stamped.slice(stamped.indexOf("\n") + 1)), "modified");
 });

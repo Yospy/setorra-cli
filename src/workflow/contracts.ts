@@ -6,7 +6,7 @@ export const RESULT_ARTIFACT_NAME = "cloud-agent-result";
 export const RESULT_ARTIFACT_FILE = "cloud-agent-result.json";
 
 /**
- * The only file this platform puts in a customer repository.
+ * Agent workflows installed alongside the PR-completion companion.
  *
  * It exists because a workflow is the one thing that cannot be installed remotely:
  * GitHub runs Actions only from `.github/workflows`, and only a human merging a pull
@@ -20,3 +20,10 @@ export const AGENT_WORKFLOW_PATHS: Readonly<Record<AgentKind, string>> = {
   claude: ".github/workflows/api-migration-claude.yml",
   codex: ".github/workflows/api-migration-codex.yml",
 };
+
+export const COMPLETION_WORKFLOW_PATH = ".github/workflows/setorra-pr-completion.yml";
+export const COMPLETION_MARKER = "# setorra-pr-completion/v1";
+export const COMPLETION_INPUTS = [
+  "recovery_id", "handoff_id", "issue_number", "original_run_id", "original_attempt",
+  "original_result_digest", "expected_head_sha", "expected_base_sha", "expected_execution_sha",
+] as const;
