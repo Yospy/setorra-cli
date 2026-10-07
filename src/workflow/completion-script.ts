@@ -51,7 +51,7 @@ const baseBranch = repository.default_branch;
 const run = request(prefix + '/actions/runs/' + inputs.original_run_id);
 const attempt = request(prefix + '/actions/runs/' + inputs.original_run_id + '/attempts/' + inputs.original_attempt);
 for (const r of [run, attempt]) {
-  if (String(r.id) !== inputs.original_run_id || String(r.run_attempt) !== inputs.original_attempt || r.status !== 'completed' || r.event !== 'issues' || r.head_sha !== inputs.expected_base_sha || String(r.repository?.id) !== process.env.GITHUB_REPOSITORY_ID || r.display_title !== 'api-migration-' + inputs.issue_number || !/^\.github\/workflows\/api-migration-(claude|codex)\.yml$/.test(r.path)) fail('original_workflow_changed');
+  if (String(r.id) !== inputs.original_run_id || String(r.run_attempt) !== inputs.original_attempt || r.status !== 'completed' || r.event !== 'issues' || r.head_sha !== inputs.expected_base_sha || String(r.repository?.id) !== process.env.GITHUB_REPOSITORY_ID || r.display_title !== 'api-migration-' + inputs.issue_number || !/^\.github\/workflows\/api-migration-(claude|codex|cursor)\.yml$/.test(r.path)) fail('original_workflow_changed');
 }
 if (run.workflow_id !== attempt.workflow_id || run.path !== attempt.path) fail('original_workflow_changed');
 function validateIssue(issue) {

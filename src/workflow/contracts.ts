@@ -1,4 +1,5 @@
-export type AgentKind = "claude" | "codex";
+export const AGENT_KINDS = ["claude", "codex", "cursor"] as const;
+export type AgentKind = (typeof AGENT_KINDS)[number];
 
 export const WORKFLOW_CONTRACT_VERSION = "agent-workflow/1";
 export const RESULT_CONTRACT_VERSION = "cloud-agent-result/v1";
@@ -19,6 +20,7 @@ export const RESULT_ARTIFACT_FILE = "cloud-agent-result.json";
 export const AGENT_WORKFLOW_PATHS: Readonly<Record<AgentKind, string>> = {
   claude: ".github/workflows/api-migration-claude.yml",
   codex: ".github/workflows/api-migration-codex.yml",
+  cursor: ".github/workflows/api-migration-cursor.yml",
 };
 
 export const COMPLETION_WORKFLOW_PATH = ".github/workflows/setorra-pr-completion.yml";

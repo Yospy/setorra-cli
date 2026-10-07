@@ -1,10 +1,9 @@
-import { AGENT_WORKFLOW_PATHS, COMPLETION_WORKFLOW_PATH, type AgentKind } from "./contracts.js";
+import { AGENT_WORKFLOW_PATHS, COMPLETION_WORKFLOW_PATH } from "./contracts.js";
 import { inspectProvenance, stampProvenance } from "./provenance.js";
 import {
-  type CredentialKind,
-  type PinnedAction,
   renderAgentWorkflow,
   renderCompletionWorkflow,
+  type WorkflowTemplateInput,
 } from "./templates.js";
 
 export type PlannedAction =
@@ -14,15 +13,8 @@ export type PlannedAction =
   | { kind: "unchanged"; path: string }
   | { kind: "conflict"; path: string; reason: string };
 
-export type ReconcileInput = {
-  /** The agent the caller is selecting. Overrides whatever the config currently says. */
-  agent: AgentKind;
-  credential: CredentialKind;
-  botLogin: string;
-  label: string;
-  checkoutAction: PinnedAction;
-  agentAction: PinnedAction;
-  uploadArtifactAction: PinnedAction;
+/** `agent` is the one the caller is selecting; it overrides whatever is installed. */
+export type ReconcileInput = WorkflowTemplateInput & {
   /** Current contents of every managed path that exists, keyed by repository path. */
   existing: ReadonlyMap<string, string>;
   force: boolean;
@@ -37,7 +29,7 @@ export type ReconcilePlan = {
 };
 
 export function managedPaths(): readonly string[] {
-  return [AGENT_WORKFLOW_PATHS.claude, AGENT_WORKFLOW_PATHS.codex, COMPLETION_WORKFLOW_PATH];
+  return [...Object.values(AGENT_WORKFLOW_PATHS), COMPLETION_WORKFLOW_PATH];
 }
 
 function planFile(
@@ -76,21 +68,14 @@ function planFile(
  * different bills.
  */
 export function planRepositoryAgentFiles(input: ReconcileInput): ReconcilePlan {
+  const { existing, force, ...template } = input;
   const actions: PlannedAction[] = [
-    planFile(COMPLETION_WORKFLOW_PATH, stampProvenance(renderCompletionWorkflow(input)), input.existing, input.force),
+    planFile(COMPLETION_WORKFLOW_PATH, stampProvenance(renderCompletionWorkflow(template)), existing, force),
     planFile(
       AGENT_WORKFLOW_PATHS[input.agent],
-      stampProvenance(renderAgentWorkflow({
-        agent: input.agent,
-        credential: input.credential,
-        botLogin: input.botLogin,
-        label: input.label,
-        checkoutAction: input.checkoutAction,
-        agentAction: input.agentAction,
-        uploadArtifactAction: input.uploadArtifactAction,
-      })),
-      input.existing,
-      input.force,
+      stampProvenance(renderAgentWorkflow(template)),
+      existing,
+      force,
     ),
   ];
 
