@@ -1,9 +1,11 @@
-import type { AgentKind } from "./contracts.js";
+import { AGENT_KINDS, type AgentKind } from "./contracts.js";
 import {
+  type ActionAgentKind,
   AGENT_ACTION_REPOSITORIES,
   AGENT_BOT_ALLOWLIST_INPUTS,
   agentCredentialInputs,
   CHECKOUT_ACTION_REPOSITORY,
+  CURSOR_CLI_DOWNLOAD_PREFIX,
   UPLOAD_ARTIFACT_ACTION_REPOSITORY,
 } from "./templates.js";
 
@@ -16,6 +18,9 @@ export type WorkflowFindingCode =
   | "missing_actor_guard"
   | "missing_label_guard"
   | "unpinned_action_reference"
+  | "unpinned_agent_cli"
+  | "agent_receives_oidc_token"
+  | "agent_keeps_sudo"
   | "missing_bot_allowlist_input"
   | "bot_allowlist_mismatch"
   | "bot_allowlist_wildcard"
@@ -54,6 +59,8 @@ export type WorkflowValidationResult = {
 };
 
 const PINNED_ACTION = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[^@\s]+@[a-f0-9]{40}$/u;
+const PINNED_CURSOR_CLI_URL =
+  /^https:\/\/downloads\.cursor\.com\/lab\/[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[a-f0-9]{7,40}\/linux\/x64\/agent-cli-package\.tar\.gz$/u;
 const BASE_SHA_OUTPUT = "${{ steps.provenance.outputs.base_sha }}";
 const HANDOFF_BRANCH = "setorra/${{ steps.provenance.outputs.handoff_id }}";
 
@@ -169,11 +176,12 @@ function checkGuards(
 
 function checkAgentInputs(
   step: unknown,
+  agent: ActionAgentKind,
   input: WorkflowValidationInput,
   findings: WorkflowFinding[],
 ): void {
   const withInputs = stepWith(step);
-  const allowlistInput = AGENT_BOT_ALLOWLIST_INPUTS[input.agent];
+  const allowlistInput = AGENT_BOT_ALLOWLIST_INPUTS[agent];
   const allowlist = asString(withInputs?.[allowlistInput]);
   if (allowlist === undefined) {
     push(findings, "missing_bot_allowlist_input", `The agent step must set '${allowlistInput}'.`);
@@ -187,10 +195,51 @@ function checkAgentInputs(
   } else if (!allowlist.split(",").map((entry) => entry.trim()).includes(input.botLogin)) {
     push(findings, "bot_allowlist_mismatch", `'${allowlistInput}' must list '${input.botLogin}'.`);
   }
-  const credentialInputs = agentCredentialInputs(input.agent);
+  const credentialInputs = agentCredentialInputs(agent);
   if (!credentialInputs.some((name) => (asString(withInputs?.[name]) ?? "").trim() !== "")) {
     push(findings, "missing_credential_input", "The agent step has no supported credential input.");
   }
+}
+
+/** Cursor runs as a shell step, so it has no action `with` inputs or bot allowlist. */
+function checkCursorAgent(
+  job: Record<string, unknown>,
+  step: unknown,
+  findings: WorkflowFinding[],
+): void {
+  const env = stepEnv(step);
+  const run = stepRun(step);
+  if (asString(env?.["CURSOR_API_KEY"]) !== "${{ secrets.CURSOR_API_KEY }}") {
+    push(findings, "missing_credential_input", "The agent step must read 'CURSOR_API_KEY' from secrets.");
+  }
+  if (
+    !PINNED_CURSOR_CLI_URL.test(asString(env?.["CURSOR_CLI_URL"]) ?? "") ||
+    !/^[a-f0-9]{64}$/u.test(asString(env?.["CURSOR_CLI_SHA256"]) ?? "") ||
+    !run.includes('"$CURSOR_CLI_URL"') ||
+    !run.includes('"$CURSOR_CLI_SHA256"') ||
+    !run.includes("sha256sum --check --strict")
+  ) {
+    push(
+      findings,
+      "unpinned_agent_cli",
+      "The Cursor CLI must be one exact release verified against its SHA-256.",
+    );
+  }
+  if (!run.includes("if sudo -n true 2>/dev/null; then")) {
+    push(findings, "agent_keeps_sudo", "The Cursor step must drop sudo before the agent runs.");
+  }
+  // `write-all` (a string) and an omitted job block inheriting workflow permissions
+  // would both grant the token, so the job must declare a mapping without it.
+  const permissions = asRecord(job["permissions"]);
+  if (permissions === undefined || permissions["id-token"] !== undefined) {
+    push(findings, "agent_receives_oidc_token", "The Cursor job must not request an OIDC token.");
+  }
+}
+
+function isAgentStep(agent: AgentKind, step: unknown): boolean {
+  return agent === "cursor"
+    ? asString(stepEnv(step)?.["CURSOR_CLI_URL"])?.startsWith(CURSOR_CLI_DOWNLOAD_PREFIX) === true
+    : stepUses(step)?.startsWith(`${AGENT_ACTION_REPOSITORIES[agent]}@`) === true;
 }
 
 function oneStep(steps: readonly unknown[], id: string): unknown | undefined {
@@ -395,20 +444,16 @@ export function validateAgentWorkflow(
     checkPinning(steps, findings);
   }
 
-  const expectedRepository = AGENT_ACTION_REPOSITORIES[input.agent];
-  const otherRepositories = Object.entries(AGENT_ACTION_REPOSITORIES)
-    .filter(([agent]) => agent !== input.agent)
-    .map(([, repository]) => repository);
+  const otherAgents = AGENT_KINDS.filter((agent) => agent !== input.agent);
   const expectedMatches: { job: Record<string, unknown>; steps: readonly unknown[]; step: unknown }[] = [];
   const agentSteps: unknown[] = [];
   let foundOther = false;
   for (const entry of jobs) {
     for (const step of entry.steps) {
-      const uses = stepUses(step);
-      if (uses?.startsWith(`${expectedRepository}@`)) {
+      if (isAgentStep(input.agent, step)) {
         expectedMatches.push({ ...entry, step });
         agentSteps.push(step);
-      } else if (uses !== undefined && otherRepositories.some((repository) => uses.startsWith(`${repository}@`))) {
+      } else if (otherAgents.some((agent) => isAgentStep(agent, step))) {
         foundOther = true;
         agentSteps.push(step);
       }
@@ -443,13 +488,21 @@ export function validateAgentWorkflow(
     push(
       findings,
       foundOther ? "unexpected_agent_action" : "missing_agent_action",
-      foundOther ? "The workflow runs the wrong agent action." : `No step uses '${expectedRepository}'.`,
+      foundOther
+        ? "The workflow runs the wrong agent action."
+        : input.agent === "cursor"
+        ? "No step runs the pinned Cursor CLI."
+        : `No step uses '${AGENT_ACTION_REPOSITORIES[input.agent]}'.`,
     );
     return { valid: false, findings };
   }
 
   checkGuards(matched.job, input, findings);
-  checkAgentInputs(matched.step, input, findings);
+  if (input.agent === "cursor") {
+    checkCursorAgent(matched.job, matched.step, findings);
+  } else {
+    checkAgentInputs(matched.step, input.agent, input, findings);
+  }
   checkContractControls(workflow, matched.steps, allSteps, findings);
   return { valid: !findings.some((finding) => finding.severity === "error"), findings };
 }

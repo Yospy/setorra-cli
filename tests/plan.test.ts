@@ -14,6 +14,8 @@ import {
 } from "../src/workflow/provenance.js";
 import type { PinnedAction } from "../src/workflow/templates.js";
 
+type ActionReconcileInput = Extract<ReconcileInput, { agentAction: unknown }>;
+
 const CHECKOUT: PinnedAction = {
   repository: "actions/checkout",
   sha: "a".repeat(40),
@@ -36,7 +38,7 @@ function agentAction(agent: "claude" | "codex"): PinnedAction {
     : { repository: "openai/codex-action", sha: "c".repeat(40), version: "v1" };
 }
 
-function input(overrides: Partial<ReconcileInput> = {}): ReconcileInput {
+function input(overrides: Partial<ActionReconcileInput> = {}): ReconcileInput {
   const agent = overrides.agent ?? "claude";
   return {
     agent,
@@ -62,6 +64,7 @@ test("manages the agent choices and shared completion workflow", () => {
   assert.deepEqual(managedPaths(), [
     AGENT_WORKFLOW_PATHS.claude,
     AGENT_WORKFLOW_PATHS.codex,
+    AGENT_WORKFLOW_PATHS.cursor,
     COMPLETION_WORKFLOW_PATH,
   ]);
 });
@@ -114,6 +117,32 @@ test("switching agent deletes the workflow that would otherwise still fire", () 
 
   assert.equal(byPath(plan.actions, AGENT_WORKFLOW_PATHS.claude).kind, "create");
   assert.equal(byPath(plan.actions, AGENT_WORKFLOW_PATHS.codex).kind, "delete");
+});
+
+test("switching to Cursor writes its workflow and deletes the action workflow", () => {
+  const claudePlan = planRepositoryAgentFiles(input());
+  const existing = new Map<string, string>();
+  for (const action of claudePlan.actions) {
+    if (action.kind === "create") {
+      existing.set(action.path, action.contents);
+    }
+  }
+
+  const plan = planRepositoryAgentFiles({
+    agent: "cursor",
+    credential: "api_key",
+    botLogin: "setorra[bot]",
+    label: "api-migration",
+    checkoutAction: CHECKOUT,
+    cursorCli: { version: "2026.10.01-e373342", sha256: "e".repeat(64) },
+    uploadArtifactAction: UPLOAD_ARTIFACT,
+    existing,
+    force: false,
+  });
+
+  assert.equal(byPath(plan.actions, AGENT_WORKFLOW_PATHS.cursor).kind, "create");
+  assert.equal(byPath(plan.actions, AGENT_WORKFLOW_PATHS.claude).kind, "delete");
+  assert.equal(byPath(plan.actions, COMPLETION_WORKFLOW_PATH).kind, "unchanged");
 });
 
 test("refuses to overwrite a hand-edited managed file", () => {

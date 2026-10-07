@@ -9,7 +9,7 @@ const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-
 const DIGEST = /^[a-f0-9]{64}$/u;
 const SHA = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
 const GITHUB_ID = /^[1-9][0-9]{0,19}$/u;
-const WORKFLOW_PATH = /^\.github\/workflows\/api-migration-(?:claude|codex)\.yml$/u;
+const WORKFLOW_PATH = /^\.github\/workflows\/api-migration-(?:claude|codex|cursor)\.yml$/u;
 
 const HandoffFields = {
   handoffId: z.string().regex(UUID),
@@ -254,7 +254,7 @@ export function renderProvenanceValidationScript(): readonly string[] {
     "const digest = /^[a-f0-9]{64}$/;",
     "const sha = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/;",
     "const githubId = /^[1-9][0-9]{0,19}$/;",
-    "const workflowPath = /^\\.github\\/workflows\\/api-migration-(?:claude|codex)\\.yml$/;",
+    "const workflowPath = /^\\.github\\/workflows\\/api-migration-(?:claude|codex|cursor)\\.yml$/;",
     "if (!['release-agent-handoff/v2', 'release-agent-handoff/v3', 'release-agent-handoff/v4'].includes(provenance.schemaVersion) || provenance.workflowContractVersion !== 'agent-workflow/1' || provenance.resultContractVersion !== 'cloud-agent-result/v1' || !uuid.test(provenance.handoffId) || (provenance.runId !== undefined && !uuid.test(provenance.runId)) || !digest.test(provenance.handoffDigest) || !digest.test(provenance.contextDigest) || !githubId.test(provenance.repositoryId) || !sha.test(provenance.baseSha) || !githubId.test(provenance.workflowId) || !workflowPath.test(provenance.workflowPath)) fail('invalid_fields');",
     "if (['release-agent-handoff/v3', 'release-agent-handoff/v4'].includes(provenance.schemaVersion) && !digest.test(provenance.contextPayloadDigest)) fail('invalid_fields');",
     "if (provenance.schemaVersion === 'release-agent-handoff/v2' && provenance.contextPayloadDigest !== undefined && !digest.test(provenance.contextPayloadDigest)) fail('invalid_fields');",

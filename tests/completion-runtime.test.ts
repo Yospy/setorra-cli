@@ -296,12 +296,14 @@ function canonicalJson(value: unknown): string {
   const obj = value as Record<string, unknown>;
   return `{${Object.keys(obj).sort().map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
 }
-for (const agent of ["claude", "codex"] as const) {
+for (const agent of ["claude", "codex", "cursor"] as const) {
   test(`recovers a ${agent} V4 handoff without fetching or executing its reference sources`, () => {
     const blocks = [...body.matchAll(/```json\n([\s\S]*?)\n```/gu)].map(m => JSON.parse(m[1]!));
     const context = blocks.find(b => b.schemaVersion === "release-agent-context/v3");
     const provenance = blocks.find(b => b.schemaVersion === "release-agent-handoff/v3");
     context.schemaVersion = "release-agent-context/v4";
+    context.target.agentKind = agent;
+    context.target.readiness.workflowPath = `.github/workflows/api-migration-${agent}.yml`;
     context.sources = ["base_artifact", "target_artifact"].map(role => ({ id: role, kind: "package_release_catalog", role, access: "reference_only", contentInspected: false, source: "PyPI", registryUrl: "https://pypi.org/pypi/example/json", snapshotSha256: "a".repeat(64), artifactCount: 2 }));
     delete context.payloadDigest;
     context.payloadDigest = createHash("sha256").update(canonicalJson(context)).digest("hex");

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
+  AGENT_KINDS,
   AGENT_WORKFLOW_PATHS,
   COMPLETION_WORKFLOW_PATH,
   type AgentKind,
@@ -19,10 +20,12 @@ import {
   AGENT_ACTION_REPOSITORIES,
   AGENT_CREDENTIALS,
   type CredentialKind,
+  CURSOR_CLI_DOWNLOAD_PREFIX,
 } from "./workflow/templates.js";
 import {
   AGENT_ACTIONS,
   CHECKOUT_ACTION,
+  CURSOR_CLI,
   UPLOAD_ARTIFACT_ACTION,
 } from "./workflow/action-pins.js";
 import { validateAgentWorkflow } from "./workflow/workflow-validate.js";
@@ -49,6 +52,7 @@ type Options = {
 const DEFAULT_CREDENTIALS: Readonly<Record<AgentKind, CredentialKind>> = {
   claude: "oauth_token",
   codex: "api_key",
+  cursor: "api_key",
 };
 
 class UsageError extends Error {}
@@ -57,7 +61,7 @@ function parseArguments(argv: readonly string[]): Options {
   const [command, ...rest] = argv;
   if (command !== "init" && command !== "status" && command !== "sync") {
     throw new UsageError(
-      "usage: setorra <init|status|sync> [claude|codex] " +
+      "usage: setorra <init|status|sync> [claude|codex|cursor] " +
         "[--credential api_key|oauth_token] [--force] [--dry-run]",
     );
   }
@@ -69,8 +73,8 @@ function parseArguments(argv: readonly string[]): Options {
 
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index];
-    if (argument === "claude" || argument === "codex") {
-      agent = argument;
+    if (AGENT_KINDS.some((kind) => kind === argument)) {
+      agent = argument as AgentKind;
     } else if (argument === "--force") {
       force = true;
     } else if (argument === "--dry-run") {
@@ -132,14 +136,19 @@ function readManaged(root: string): Map<string, string> {
   return existing;
 }
 
+const AGENT_WORKFLOW_MARKERS: Readonly<Record<AgentKind, string>> = {
+  ...AGENT_ACTION_REPOSITORIES,
+  cursor: CURSOR_CLI_DOWNLOAD_PREFIX,
+};
+
 /**
  * The installed workflow is the only record of which agent a repository uses. There is
  * no companion configuration file to disagree with it.
  */
 function detectAgent(existing: ReadonlyMap<string, string>): AgentKind | undefined {
-  for (const agent of ["claude", "codex"] as const) {
+  for (const agent of AGENT_KINDS) {
     const workflow = existing.get(AGENT_WORKFLOW_PATHS[agent]);
-    if (workflow?.includes(AGENT_ACTION_REPOSITORIES[agent]) === true) {
+    if (workflow?.includes(AGENT_WORKFLOW_MARKERS[agent]) === true) {
       return agent;
     }
   }
@@ -286,7 +295,7 @@ function openPullRequest(
 function runStatus(options: Options): number {
   const existing = readManaged(options.root);
 
-  const present = (["claude", "codex"] as const)
+  const present = AGENT_KINDS
     .filter((agent) => existing.has(AGENT_WORKFLOW_PATHS[agent]));
   if (present.length === 0) {
     console.error("no migration workflow; run `setorra init <agent>` first");
@@ -297,7 +306,7 @@ function runStatus(options: Options): number {
   if (present.length > 1) {
     console.error(
       `error: ${present.length} migration workflows exist (${present.join(", ")}). ` +
-        "Both would run on the same issue.",
+        "Each would run on the same issue.",
     );
     failures += 1;
   }
@@ -362,7 +371,7 @@ function runReconcile(options: Options): number {
     console.error(
       options.command === "sync"
         ? "no migration workflow; run `setorra init <agent>` first"
-        : "could not determine the agent; pass `claude` or `codex`",
+        : "could not determine the agent; pass `claude`, `codex` or `cursor`",
     );
     return 1;
   }
@@ -377,12 +386,13 @@ function runReconcile(options: Options): number {
   }
 
   const plan = planRepositoryAgentFiles({
-    agent,
     credential,
     botLogin: BOT_LOGIN,
     label: LABEL,
     checkoutAction: CHECKOUT_ACTION,
-    agentAction: AGENT_ACTIONS[agent],
+    ...(agent === "cursor"
+      ? { agent, cursorCli: CURSOR_CLI }
+      : { agent, agentAction: AGENT_ACTIONS[agent] }),
     uploadArtifactAction: UPLOAD_ARTIFACT_ACTION,
     existing,
     force: options.force,

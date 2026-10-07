@@ -1,6 +1,6 @@
 # Managed by Setorra. Regenerate with `setorra sync`.
 # The agent can edit only; deterministic workflow steps own GitHub mutations.
-name: API Migration (Codex)
+name: API Migration (Cursor)
 
 on:
   issues:
@@ -21,14 +21,13 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-      id-token: write
     steps:
       - name: Parse and validate Setorra provenance
         id: provenance
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
           EXPECTED_REPOSITORY_ID: ${{ github.repository_id }}
-          EXPECTED_WORKFLOW_PATH: ".github/workflows/api-migration-codex.yml"
+          EXPECTED_WORKFLOW_PATH: ".github/workflows/api-migration-cursor.yml"
           TASK_FILE: ${{ runner.temp }}/migration-task.md
           AGENT_PROMPT_FILE: ${{ runner.temp }}/agent-prompt.md
           RELEASE_CONTEXT_FILE: ${{ runner.temp }}/release-context.json
@@ -158,19 +157,29 @@ jobs:
             fs.writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });
           })().catch((error) => { console.error(error); process.exit(1); });
           NODE
-      - name: Run the Codex coding agent
+      - name: Run the Cursor coding agent
         id: agent
         continue-on-error: true
         env:
           GITHUB_ENV: /dev/null
           GITHUB_PATH: /dev/null
-        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1
-        with:
-          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          allow-bot-users: "setorra[bot]"
-          permission-profile: ":workspace"
-          safety-strategy: "drop-sudo"
-          prompt-file: ${{ runner.temp }}/agent-prompt.md
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          CURSOR_CLI_URL: "https://downloads.cursor.com/lab/2026.10.01-e373342/linux/x64/agent-cli-package.tar.gz"
+          CURSOR_CLI_SHA256: "a79726c6e644520e993970be4c45775a6889802b67abe461a677a53219ae28e8"
+          CURSOR_CONFIG_DIR: ${{ runner.temp }}/cursor-config
+          AGENT_PROMPT_FILE: ${{ runner.temp }}/agent-prompt.md
+        shell: bash
+        run: |
+          sudo -n sh -c 'user="$1"; gpasswd -d "$user" sudo >/dev/null 2>&1 || true; for file in /etc/sudoers /etc/sudoers.d/*; do if [ -f "$file" ]; then sed -i "/^$user[[:space:]]/d" "$file"; fi; done' sh "$(id -un)"
+          sudo -K || true
+          if sudo -n true 2>/dev/null; then echo 'sudo is still available to the agent' >&2; exit 1; fi
+          CURSOR_CLI_DIR="$(mktemp -d "$RUNNER_TEMP/cursor-cli.XXXXXX")"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --proto '=https' --tlsv1.2 --output "$CURSOR_CLI_DIR/cli.tar.gz" "$CURSOR_CLI_URL"
+          printf '%s  %s\n' "$CURSOR_CLI_SHA256" "$CURSOR_CLI_DIR/cli.tar.gz" | sha256sum --check --strict --quiet
+          tar -xzf "$CURSOR_CLI_DIR/cli.tar.gz" -C "$CURSOR_CLI_DIR"
+          mkdir -p "$CURSOR_CONFIG_DIR"
+          printf '%s\n' '{"version":1,"editor":{"vimMode":false},"permissions":{"allow":[],"deny":["Shell(git)","Shell(gh)","Shell(curl)","Shell(wget)","Shell(ssh)","Shell(scp)","Shell(sftp)","Shell(nc)","Shell(ncat)","Shell(sudo)","Write(.github/**)","Write(.git/**)"]}}' > "$CURSOR_CONFIG_DIR/cli-config.json"
+          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"
       - name: Install deterministic workflow helpers
         id: workflow_helpers
         shell: bash

@@ -10,9 +10,18 @@ import { RepositoryAgentConfigError } from "./errors.js";
 import { renderProvenanceParserScript } from "./provenance-contract.js";
 import type { AgentKind } from "./contracts.js";
 
-export const AGENT_ACTION_REPOSITORIES: Readonly<Record<AgentKind, string>> = {
+/** Agents that run as a pinned marketplace action. Cursor publishes none; see CursorCliPin. */
+export type ActionAgentKind = Exclude<AgentKind, "cursor">;
+
+export const AGENT_ACTION_REPOSITORIES: Readonly<Record<ActionAgentKind, string>> = {
   claude: "anthropics/claude-code-action",
   codex: "openai/codex-action",
+};
+
+const AGENT_TITLES: Readonly<Record<AgentKind, string>> = {
+  claude: "Claude",
+  codex: "Codex",
+  cursor: "Cursor",
 };
 
 export const CHECKOUT_ACTION_REPOSITORY = "actions/checkout";
@@ -38,6 +47,10 @@ export const AGENT_CREDENTIALS: Readonly<
   codex: {
     api_key: { input: "openai-api-key", secret: "OPENAI_API_KEY" },
   },
+  // The Cursor CLI reads its key from the environment, so its input is a variable name.
+  cursor: {
+    api_key: { input: "CURSOR_API_KEY", secret: "CURSOR_API_KEY" },
+  },
 };
 
 export function agentCredentialInputs(agent: AgentKind): readonly string[] {
@@ -46,7 +59,7 @@ export function agentCredentialInputs(agent: AgentKind): readonly string[] {
 }
 
 /** Input names intentionally differ across the two marketplace actions. */
-export const AGENT_BOT_ALLOWLIST_INPUTS: Readonly<Record<AgentKind, string>> = {
+export const AGENT_BOT_ALLOWLIST_INPUTS: Readonly<Record<ActionAgentKind, string>> = {
   claude: "allowed_bots",
   codex: "allow-bot-users",
 };
@@ -62,15 +75,68 @@ const PinnedActionSchema = z.object({
 
 export type PinnedAction = z.infer<typeof PinnedActionSchema>;
 
-const WorkflowTemplateInputSchema = z.object({
-  agent: z.enum(["claude", "codex"]),
-  credential: z.enum(["api_key", "oauth_token"]).default("api_key"),
-  botLogin: z.string().min(4).max(64).regex(/^[a-z0-9][a-z0-9-]*\[bot\]$/u),
-  label: z.string().min(1).max(50).regex(/^[a-z0-9][a-z0-9._-]*$/u),
-  checkoutAction: PinnedActionSchema,
-  agentAction: PinnedActionSchema,
-  uploadArtifactAction: PinnedActionSchema,
+/**
+ * Cursor has no official GitHub Action, so its CLI build is pinned instead: one exact
+ * Linux x64 release tarball, verified against this SHA-256 before it is unpacked.
+ */
+const CursorCliPinSchema = z.object({
+  version: z.string().regex(/^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[a-f0-9]{7,40}$/u),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
 }).strict();
+
+export type CursorCliPin = z.infer<typeof CursorCliPinSchema>;
+
+export const CURSOR_CLI_DOWNLOAD_PREFIX = "https://downloads.cursor.com/lab/";
+
+export function cursorCliUrl(pin: CursorCliPin): string {
+  return `${CURSOR_CLI_DOWNLOAD_PREFIX}${pin.version}/linux/x64/agent-cli-package.tar.gz`;
+}
+
+/**
+ * `--force` runs every tool call the agent asks for unless it is denied here, and deny
+ * rules win over any project `.cursor/cli.json`. These are guardrails against an agent
+ * trying to publish its own work, not a sandbox: rules match command names, so code run
+ * through an interpreter is not covered. Workflow-path changes are still blocked after
+ * the agent by the protected-path check.
+ */
+const CURSOR_DENIED_PERMISSIONS = [
+  "Shell(git)",
+  "Shell(gh)",
+  "Shell(curl)",
+  "Shell(wget)",
+  "Shell(ssh)",
+  "Shell(scp)",
+  "Shell(sftp)",
+  "Shell(nc)",
+  "Shell(ncat)",
+  "Shell(sudo)",
+  "Write(.github/**)",
+  "Write(.git/**)",
+] as const;
+
+const BotLoginSchema = z.string().min(4).max(64).regex(/^[a-z0-9][a-z0-9-]*\[bot\]$/u);
+const LabelSchema = z.string().min(1).max(50).regex(/^[a-z0-9][a-z0-9._-]*$/u);
+
+const TemplateCommonFields = {
+  credential: z.enum(["api_key", "oauth_token"]).default("api_key"),
+  botLogin: BotLoginSchema,
+  label: LabelSchema,
+  checkoutAction: PinnedActionSchema,
+  uploadArtifactAction: PinnedActionSchema,
+};
+
+const WorkflowTemplateInputSchema = z.discriminatedUnion("agent", [
+  z.object({
+    agent: z.enum(["claude", "codex"]),
+    ...TemplateCommonFields,
+    agentAction: PinnedActionSchema,
+  }).strict(),
+  z.object({
+    agent: z.literal("cursor"),
+    ...TemplateCommonFields,
+    cursorCli: CursorCliPinSchema,
+  }).strict(),
+]);
 
 export type WorkflowTemplateInput = z.input<typeof WorkflowTemplateInputSchema>;
 type ResolvedWorkflowTemplate = z.infer<typeof WorkflowTemplateInputSchema>;
@@ -225,6 +291,9 @@ function renderAgentSteps(
   input: ResolvedWorkflowTemplate,
   selected: AgentCredential,
 ): readonly string[] {
+  if (input.agent === "cursor") {
+    return renderCursorAgentStep(input.cursorCli, selected);
+  }
   const { agent, agentAction, botLogin } = input;
   const credential = `${selected.input}: \${{ secrets.${selected.secret} }}`;
   const allowlist = `${AGENT_BOT_ALLOWLIST_INPUTS[agent]}: ${
@@ -279,6 +348,51 @@ function renderAgentSteps(
     '          permission-profile: ":workspace"',
     '          safety-strategy: "drop-sudo"',
     "          prompt-file: ${{ runner.temp }}/agent-prompt.md",
+  ];
+}
+
+/**
+ * Drops sudo first, as codex-action's `drop-sudo` does, and refuses to start the agent if
+ * passwordless sudo survives: with `--force` the agent has a shell, and root could reach
+ * the tools and token used by the steps after it.
+ *
+ * Runs the pinned CLI on the same `agent-prompt.md` that Codex reads. The prompt goes in
+ * on stdin, which the CLI reads when no prompt argument is given; an issue body near its
+ * 60,000-character limit can exceed Linux's 128 KiB single-argument limit.
+ */
+function renderCursorAgentStep(
+  pin: CursorCliPin,
+  selected: AgentCredential,
+): readonly string[] {
+  const config = JSON.stringify({
+    version: 1,
+    editor: { vimMode: false },
+    permissions: { allow: [], deny: CURSOR_DENIED_PERMISSIONS },
+  });
+  return [
+    "      - name: Run the Cursor coding agent",
+    "        id: agent",
+    "        continue-on-error: true",
+    "        env:",
+    "          GITHUB_ENV: /dev/null",
+    "          GITHUB_PATH: /dev/null",
+    `          ${selected.input}: \${{ secrets.${selected.secret} }}`,
+    `          CURSOR_CLI_URL: ${yamlString(cursorCliUrl(pin))}`,
+    `          CURSOR_CLI_SHA256: ${yamlString(pin.sha256)}`,
+    "          CURSOR_CONFIG_DIR: ${{ runner.temp }}/cursor-config",
+    "          AGENT_PROMPT_FILE: ${{ runner.temp }}/agent-prompt.md",
+    "        shell: bash",
+    "        run: |",
+    `          sudo -n sh -c 'user="$1"; gpasswd -d "$user" sudo >/dev/null 2>&1 || true; for file in /etc/sudoers /etc/sudoers.d/*; do if [ -f "$file" ]; then sed -i "/^$user[[:space:]]/d" "$file"; fi; done' sh "$(id -un)"`,
+    "          sudo -K || true",
+    "          if sudo -n true 2>/dev/null; then echo 'sudo is still available to the agent' >&2; exit 1; fi",
+    '          CURSOR_CLI_DIR="$(mktemp -d "$RUNNER_TEMP/cursor-cli.XXXXXX")"',
+    `          curl --fail --silent --show-error --retry 3 --retry-all-errors --proto '=https' --tlsv1.2 --output "$CURSOR_CLI_DIR/cli.tar.gz" "$CURSOR_CLI_URL"`,
+    `          printf '%s  %s\\n' "$CURSOR_CLI_SHA256" "$CURSOR_CLI_DIR/cli.tar.gz" | sha256sum --check --strict --quiet`,
+    '          tar -xzf "$CURSOR_CLI_DIR/cli.tar.gz" -C "$CURSOR_CLI_DIR"',
+    '          mkdir -p "$CURSOR_CONFIG_DIR"',
+    `          printf '%s\\n' '${config}' > "$CURSOR_CONFIG_DIR/cli-config.json"`,
+    '          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"',
   ];
 }
 
@@ -526,7 +640,10 @@ export function renderAgentWorkflow(input: WorkflowTemplateInput): string {
   }
 
   const value = parsed.data;
-  if (value.agentAction.repository !== AGENT_ACTION_REPOSITORIES[value.agent]) {
+  if (
+    value.agent !== "cursor" &&
+    value.agentAction.repository !== AGENT_ACTION_REPOSITORIES[value.agent]
+  ) {
     throw new RepositoryAgentConfigError(
       "invalid_template_input",
       `agentAction.repository must be ${
@@ -557,7 +674,7 @@ export function renderAgentWorkflow(input: WorkflowTemplateInput): string {
   }
 
   const workflowPath = AGENT_WORKFLOW_PATHS[value.agent];
-  const title = value.agent === "claude" ? "Claude" : "Codex";
+  const title = AGENT_TITLES[value.agent];
   return [
     "# Managed by Setorra. Regenerate with `setorra sync`.",
     "# The agent can edit only; deterministic workflow steps own GitHub mutations.",
@@ -582,7 +699,9 @@ export function renderAgentWorkflow(input: WorkflowTemplateInput): string {
     "      contents: write",
     "      issues: write",
     "      pull-requests: write",
-    "      id-token: write",
+    // The marketplace actions may exchange an OIDC token; the Cursor CLI never does, and
+    // its agent has a shell that could otherwise request one.
+    ...(value.agent === "cursor" ? [] : ["      id-token: write"]),
     "    steps:",
     ...renderProvenanceStep(workflowPath),
     "      - name: Check out the handoff commit",
@@ -620,8 +739,8 @@ export type CompletionWorkflowInput = {
 };
 
 export function renderCompletionWorkflow(input: CompletionWorkflowInput): string {
-  WorkflowTemplateInputSchema.shape.botLogin.parse(input.botLogin);
-  WorkflowTemplateInputSchema.shape.label.parse(input.label);
+  BotLoginSchema.parse(input.botLogin);
+  LabelSchema.parse(input.label);
   const upload = PinnedActionSchema.parse(input.uploadArtifactAction);
   if (upload.repository !== UPLOAD_ARTIFACT_ACTION_REPOSITORY) {
     throw new Error("completion requires actions/upload-artifact");

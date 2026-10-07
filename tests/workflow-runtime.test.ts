@@ -16,6 +16,7 @@ import { parse as parseYaml } from "yaml";
 import {
   AGENT_ACTIONS,
   CHECKOUT_ACTION,
+  CURSOR_CLI,
   UPLOAD_ARTIFACT_ACTION,
 } from "../src/workflow/action-pins.js";
 import { renderAgentWorkflow } from "../src/workflow/templates.js";
@@ -327,8 +328,18 @@ function assessChanges(input: {
 }
 
 test("every generated shell step parses in bash", () => {
-  const jobs = workflow()["jobs"] as Record<string, Record<string, unknown>>;
-  const steps = jobs["migrate"]?.["steps"] as Record<string, unknown>[];
+  const cursor = parseYaml(renderAgentWorkflow({
+    agent: "cursor",
+    botLogin: "setorra[bot]",
+    label: "api-migration",
+    checkoutAction: CHECKOUT_ACTION,
+    cursorCli: CURSOR_CLI,
+    uploadArtifactAction: UPLOAD_ARTIFACT_ACTION,
+  })) as Record<string, unknown>;
+  const steps = [workflow(), cursor].flatMap((document) => {
+    const jobs = document["jobs"] as Record<string, Record<string, unknown>>;
+    return jobs["migrate"]?.["steps"] as Record<string, unknown>[];
+  });
   for (const candidate of steps) {
     if (typeof candidate["run"] !== "string") continue;
     const result = spawnSync("bash", ["-n"], {

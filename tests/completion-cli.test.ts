@@ -8,7 +8,7 @@ import test from "node:test";
 import { COMPLETION_WORKFLOW_PATH } from "../src/workflow/contracts.js";
 
 const cli = fileURLToPath(new URL("../src/bin.js", import.meta.url));
-for (const agent of ["claude", "codex"] as const) {
+for (const agent of ["claude", "codex", "cursor"] as const) {
   test(`${agent}: init installs both workflows, sync upgrades an old install, status detects missing or edited companion`, () => {
     const root = mkdtempSync(join(tmpdir(), "setorra-completion-cli-"));
     const repository = join(root, "customer");

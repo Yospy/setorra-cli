@@ -214,3 +214,58 @@ test("keeps bot and agent-action validation", () => {
   assert.ok(found.includes("missing_label_guard"));
   assert.ok(found.includes("bot_allowlist_wildcard"));
 });
+
+const CURSOR_INPUT = { agent: "cursor" as const, botLogin: "setorra[bot]", label: "api-migration" };
+
+function cursorDocument(): Record<string, unknown> {
+  return parseYaml(renderAgentWorkflow({
+    ...CURSOR_INPUT,
+    checkoutAction: CHECKOUT,
+    cursorCli: { version: "2026.10.01-e373342", sha256: "e".repeat(64) },
+    uploadArtifactAction: UPLOAD,
+  })) as Record<string, unknown>;
+}
+
+function cursorCodes(document: unknown): WorkflowFindingCode[] {
+  return validateAgentWorkflow(document, CURSOR_INPUT).findings.map((finding) => finding.code);
+}
+
+test("accepts the generated Cursor workflow", () => {
+  assert.deepEqual(validateAgentWorkflow(cursorDocument(), CURSOR_INPUT).findings, []);
+});
+
+test("requires the exact Cursor CLI pin, key and no OIDC token", () => {
+  const value = cursorDocument();
+  const env = step(value, "agent")["env"] as Record<string, unknown>;
+  env["CURSOR_CLI_URL"] = "https://downloads.cursor.com/lab/latest/linux/x64/agent-cli-package.tar.gz";
+  env["CURSOR_API_KEY"] = "hard-coded";
+  (migration(value)["permissions"] as Record<string, unknown>)["id-token"] = "write";
+  const found = cursorCodes(value);
+  assert.ok(found.includes("unpinned_agent_cli"));
+  assert.ok(found.includes("missing_credential_input"));
+  assert.ok(found.includes("agent_receives_oidc_token"));
+});
+
+test("rejects a GitHub token in the Cursor agent step", () => {
+  const value = cursorDocument();
+  (step(value, "agent")["env"] as Record<string, unknown>)["GH_TOKEN"] = "${{ github.token }}";
+  assert.ok(cursorCodes(value).includes("agent_receives_mutation_token"));
+});
+
+test("tells Cursor and action workflows apart", () => {
+  assert.ok(cursorCodes(document()).includes("unexpected_agent_action"));
+  assert.ok(codes(cursorDocument()).includes("unexpected_agent_action"));
+});
+
+test("rejects a Cursor job that grants every permission", () => {
+  const value = cursorDocument();
+  migration(value)["permissions"] = "write-all";
+  assert.ok(cursorCodes(value).includes("agent_receives_oidc_token"));
+});
+
+test("requires the Cursor step to drop sudo", () => {
+  const value = cursorDocument();
+  const agent = step(value, "agent");
+  agent["run"] = String(agent["run"]).replace("if sudo -n true 2>/dev/null; then", "if false; then");
+  assert.ok(cursorCodes(value).includes("agent_keeps_sudo"));
+});

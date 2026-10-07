@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   AGENT_ACTIONS,
   CHECKOUT_ACTION,
+  CURSOR_CLI,
   UPLOAD_ARTIFACT_ACTION,
 } from "../.tsbuild/src/workflow/action-pins.js";
 import { renderAgentWorkflow } from "../.tsbuild/src/workflow/templates.js";
@@ -12,14 +13,16 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = resolve(root, "tests/fixtures/cloud-agent-v1");
 mkdirSync(output, { recursive: true });
 
-for (const agent of ["claude", "codex"]) {
+for (const agent of ["claude", "codex", "cursor"]) {
   const workflow = renderAgentWorkflow({
     agent,
     credential: "api_key",
     botLogin: "setorra[bot]",
     label: "api-migration",
     checkoutAction: CHECKOUT_ACTION,
-    agentAction: AGENT_ACTIONS[agent],
+    ...(agent === "cursor"
+      ? { cursorCli: CURSOR_CLI }
+      : { agentAction: AGENT_ACTIONS[agent] }),
     uploadArtifactAction: UPLOAD_ARTIFACT_ACTION,
   });
   const destination = resolve(output, `${agent}.yml`);

@@ -4,13 +4,13 @@ Onboards a GitHub repository for automated API migration. It installs two workfl
 and opens a pull request for you to review.
 
 ```bash
-npx setorra init claude    # or: codex
+npx setorra init claude    # or: codex, cursor
 ```
 
 ## What it writes
 
-One agent workflow (Claude shown; Codex uses `api-migration-codex.yml`) and a shared
-completion workflow:
+One agent workflow (Claude shown; Codex and Cursor use `api-migration-codex.yml` and
+`api-migration-cursor.yml` respectively) and a shared completion workflow:
 
 ```
 .github/workflows/api-migration-claude.yml
@@ -52,6 +52,7 @@ The workflow needs the selected agent credential:
 | --- | --- |
 | `claude` | `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY` with `--credential api_key`) |
 | `codex` | `OPENAI_API_KEY` |
+| `cursor` | `CURSOR_API_KEY` (a Cursor Enterprise service-account key is recommended) |
 
 Add it under **Settings → Secrets and variables → Actions**.
 
@@ -70,7 +71,7 @@ revoke execution. Removing the agent secret alone does not disable PR completion
 
 | Command | Purpose |
 | --- | --- |
-| `setorra init <claude\|codex>` | Install both workflows and open a pull request. |
+| `setorra init <claude\|codex\|cursor>` | Install both workflows and open a pull request. |
 | `setorra status` | Check the agent workflow and reviewed completion contract. |
 | `setorra sync` | Upgrade both workflows, including adding a missing companion. |
 

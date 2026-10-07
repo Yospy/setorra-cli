@@ -19,9 +19,12 @@ const UPLOAD_ARTIFACT: PinnedAction = {
   version: "v4",
 };
 
+type ActionTemplateInput = Extract<WorkflowTemplateInput, { agentAction: unknown }>;
+type CursorTemplateInput = Extract<WorkflowTemplateInput, { agent: "cursor" }>;
+
 function workflowInput(
-  overrides: Partial<WorkflowTemplateInput> = {},
-): WorkflowTemplateInput {
+  overrides: Partial<ActionTemplateInput> = {},
+): ActionTemplateInput {
   return {
     agent: "claude",
     botLogin: "setorra[bot]",
@@ -33,6 +36,23 @@ function workflowInput(
       sha: "b".repeat(40),
       version: "v1.0.0",
     },
+    ...overrides,
+  };
+}
+
+const CURSOR_CLI = {
+  version: "2026.10.01-e373342",
+  sha256: "e".repeat(64),
+};
+
+function cursorInput(overrides: Partial<CursorTemplateInput> = {}): CursorTemplateInput {
+  return {
+    agent: "cursor",
+    botLogin: "setorra[bot]",
+    label: "api-migration",
+    checkoutAction: CHECKOUT,
+    uploadArtifactAction: UPLOAD_ARTIFACT,
+    cursorCli: CURSOR_CLI,
     ...overrides,
   };
 }
@@ -230,4 +250,58 @@ test("serializes one-shot runs and gives shell steps exclusive mutation authorit
   assert.ok(rendered.includes("if: always()"));
   assert.ok(rendered.includes("persist-credentials: false"));
   assert.ok(rendered.includes("GIT_AUTH_KEY"));
+});
+
+test("runs the pinned Cursor CLI on the prompt file with the customer key", () => {
+  const rendered = renderAgentWorkflow(cursorInput());
+  assert.ok(rendered.includes("name: API Migration (Cursor)"));
+  assert.ok(rendered.includes("      - name: Run the Cursor coding agent"));
+  assert.ok(rendered.includes("          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}"));
+  assert.ok(rendered.includes(
+    'CURSOR_CLI_URL: "https://downloads.cursor.com/lab/2026.10.01-e373342/linux/x64/agent-cli-package.tar.gz"',
+  ));
+  assert.ok(rendered.includes(`CURSOR_CLI_SHA256: "${"e".repeat(64)}"`));
+  assert.ok(rendered.includes("| sha256sum --check --strict --quiet"));
+  // Sudo is dropped and proven gone before anything is downloaded or run.
+  assert.ok(
+    rendered.indexOf("if sudo -n true 2>/dev/null; then") <
+      rendered.indexOf('CURSOR_CLI_DIR="$(mktemp'),
+  );
+  // The prompt arrives on stdin: a full issue body can exceed one argv entry.
+  assert.ok(rendered.includes(
+    '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"',
+  ));
+  assert.ok(!rendered.includes("uses: anthropics/") && !rendered.includes("uses: openai/"));
+});
+
+test("denies Cursor git, PR, network and workflow-path tools", () => {
+  const rendered = renderAgentWorkflow(cursorInput());
+  const line = rendered.split("\n").find((candidate) => candidate.includes("cli-config.json\""));
+  assert.ok(line !== undefined);
+  const config = JSON.parse(line.slice(line.indexOf("'{") + 1, line.lastIndexOf("}'") + 1));
+  assert.deepEqual(config.permissions.allow, []);
+  for (const rule of ["Shell(git)", "Shell(gh)", "Shell(curl)", "Write(.github/**)", "Write(.git/**)"]) {
+    assert.ok(config.permissions.deny.includes(rule), rule);
+  }
+});
+
+test("gives the Cursor job no OIDC token and the agent step no GitHub token", () => {
+  const rendered = renderAgentWorkflow(cursorInput());
+  assert.ok(!rendered.includes("id-token: write"));
+  const agentStep = rendered.slice(
+    rendered.indexOf("      - name: Run the Cursor coding agent"),
+    rendered.indexOf("      - name: Install deterministic workflow helpers"),
+  );
+  assert.ok(agentStep.length > 0);
+  assert.doesNotMatch(agentStep, /github\.token|GH_TOKEN|GITHUB_TOKEN/u);
+  assert.ok(agentStep.includes("GITHUB_ENV: /dev/null"));
+  assert.ok(agentStep.includes("GITHUB_PATH: /dev/null"));
+});
+
+test("rejects a Cursor workflow without one exact CLI pin", () => {
+  expectTemplateError(cursorInput({ cursorCli: { version: "latest", sha256: "e".repeat(64) } }));
+  expectTemplateError(cursorInput({ cursorCli: { version: CURSOR_CLI.version, sha256: "E".repeat(64) } }));
+  expectTemplateError(cursorInput({ credential: "oauth_token" }));
+  expectTemplateError({ ...cursorInput(), agentAction: CODEX_ACTION } as unknown as WorkflowTemplateInput);
+  expectTemplateError({ ...workflowInput(), cursorCli: CURSOR_CLI } as unknown as WorkflowTemplateInput);
 });
