@@ -21,6 +21,7 @@ export type WorkflowFindingCode =
   | "unpinned_agent_cli"
   | "agent_receives_oidc_token"
   | "agent_keeps_sudo"
+  | "missing_agent_invocation"
   | "missing_bot_allowlist_input"
   | "bot_allowlist_mismatch"
   | "bot_allowlist_wildcard"
@@ -59,6 +60,8 @@ export type WorkflowValidationResult = {
 };
 
 const PINNED_ACTION = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[^@\s]+@[a-f0-9]{40}$/u;
+const CURSOR_AGENT_INVOCATION =
+  '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"';
 const PINNED_CURSOR_CLI_URL =
   /^https:\/\/downloads\.cursor\.com\/lab\/[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[a-f0-9]{7,40}\/linux\/x64\/agent-cli-package\.tar\.gz$/u;
 const BASE_SHA_OUTPUT = "${{ steps.provenance.outputs.base_sha }}";
@@ -224,6 +227,9 @@ function checkCursorAgent(
       "unpinned_agent_cli",
       "The Cursor CLI must be one exact release verified against its SHA-256.",
     );
+  }
+  if (!run.includes(CURSOR_AGENT_INVOCATION)) {
+    push(findings, "missing_agent_invocation", "The Cursor step must run the pinned CLI on the prompt file.");
   }
   if (!run.includes("if sudo -n true 2>/dev/null; then")) {
     push(findings, "agent_keeps_sudo", "The Cursor step must drop sudo before the agent runs.");

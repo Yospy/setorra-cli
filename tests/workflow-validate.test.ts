@@ -269,3 +269,10 @@ test("requires the Cursor step to drop sudo", () => {
   agent["run"] = String(agent["run"]).replace("if sudo -n true 2>/dev/null; then", "if false; then");
   assert.ok(cursorCodes(value).includes("agent_keeps_sudo"));
 });
+
+test("requires the Cursor step to run the pinned CLI on the prompt", () => {
+  const value = cursorDocument();
+  const agent = step(value, "agent");
+  agent["run"] = String(agent["run"]).split("\n").filter((line) => !line.includes("cursor-agent")).join("\n");
+  assert.ok(cursorCodes(value).includes("missing_agent_invocation"));
+});
