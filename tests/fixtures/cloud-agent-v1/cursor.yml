@@ -179,7 +179,7 @@ jobs:
           tar -xzf "$CURSOR_CLI_DIR/cli.tar.gz" -C "$CURSOR_CLI_DIR"
           mkdir -p "$CURSOR_CONFIG_DIR"
           printf '%s\n' '{"version":1,"editor":{"vimMode":false},"permissions":{"allow":[],"deny":["Shell(git)","Shell(gh)","Shell(curl)","Shell(wget)","Shell(ssh)","Shell(scp)","Shell(sftp)","Shell(nc)","Shell(ncat)","Shell(sudo)","Write(.github/**)","Write(.git/**)"]}}' > "$CURSOR_CONFIG_DIR/cli-config.json"
-          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"
+          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update --disable-project-configs < "$AGENT_PROMPT_FILE"
       - name: Install deterministic workflow helpers
         id: workflow_helpers
         shell: bash

@@ -61,7 +61,7 @@ export type WorkflowValidationResult = {
 
 const PINNED_ACTION = /^[A-Za-z0-9][A-Za-z0-9._-]*\/[^@\s]+@[a-f0-9]{40}$/u;
 const CURSOR_AGENT_INVOCATION =
-  '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"';
+  '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update --disable-project-configs < "$AGENT_PROMPT_FILE"';
 const PINNED_CURSOR_CLI_URL =
   /^https:\/\/downloads\.cursor\.com\/lab\/[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[a-f0-9]{7,40}\/linux\/x64\/agent-cli-package\.tar\.gz$/u;
 const BASE_SHA_OUTPUT = "${{ steps.provenance.outputs.base_sha }}";
