@@ -93,8 +93,9 @@ export function cursorCliUrl(pin: CursorCliPin): string {
 }
 
 /**
- * `--force` runs every tool call the agent asks for unless it is denied here, and deny
- * rules win over any project `.cursor/cli.json`. These are guardrails against an agent
+ * `--force` runs every tool call the agent asks for unless it is denied here. The agent
+ * runs with `--disable-project-configs`: a repository `.cursor/cli.json` would otherwise
+ * be merged over this config, and its permission arrays would replace these. These are guardrails against an agent
  * trying to publish its own work, not a sandbox: rules match command names, so code run
  * through an interpreter is not covered. Workflow-path changes are still blocked after
  * the agent by the protected-path check.
@@ -392,7 +393,7 @@ function renderCursorAgentStep(
     '          tar -xzf "$CURSOR_CLI_DIR/cli.tar.gz" -C "$CURSOR_CLI_DIR"',
     '          mkdir -p "$CURSOR_CONFIG_DIR"',
     `          printf '%s\\n' '${config}' > "$CURSOR_CONFIG_DIR/cli-config.json"`,
-    '          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"',
+    '          "$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update --disable-project-configs < "$AGENT_PROMPT_FILE"',
   ];
 }
 

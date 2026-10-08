@@ -269,7 +269,7 @@ test("runs the pinned Cursor CLI on the prompt file with the customer key", () =
   );
   // The prompt arrives on stdin: a full issue body can exceed one argv entry.
   assert.ok(rendered.includes(
-    '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update < "$AGENT_PROMPT_FILE"',
+    '"$CURSOR_CLI_DIR/dist-package/cursor-agent" --print --force --disable-auto-update --disable-project-configs < "$AGENT_PROMPT_FILE"',
   ));
   assert.ok(!rendered.includes("uses: anthropics/") && !rendered.includes("uses: openai/"));
 });
